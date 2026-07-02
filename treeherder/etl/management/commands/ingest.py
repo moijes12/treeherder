@@ -22,7 +22,6 @@ from treeherder.etl.pushlog import HgPushlogProcess, last_push_id_from_server
 from treeherder.etl.taskcluster_pulse.handler import EXCHANGE_EVENT_MAP, handle_message
 from treeherder.model.models import Repository
 from treeherder.utils import github
-from treeherder.utils.github import fetch_api_full_url
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -48,20 +47,37 @@ class Connection:
 
 
 def ingest_pr(pr_url, root_url):
-    if not pr_url.ends_with("/"):
-        pr_url += "/"
-    _, _, _, org, repo, _, pull_number, _ = pr_url.split("/", 7)
+    # Parse the URL to get owner, repo, and pull number
+    # Example: https://github.com/mozilla-mobile/android-components/pull/4821
+    parts = pr_url.split("/")
+    if len(parts) < 7:
+        raise ValueError(f"Invalid PR URL format: {pr_url}")
+
+    org = parts[3]
+    repo_name = parts[4]
+    pull_number_str = parts[6]
+
+    try:
+        pull_number = int(pull_number_str)
+    except ValueError:
+        raise ValueError(f"Invalid pull request number in URL: {pr_url}")
+
+    # Fetch the pull request using PyGithub
+    pr = github.get_pull_request(org, repo_name, pull_number)
+
     pulse = {
         "exchange": "exchange/taskcluster-github/v1/pull-request",
-        "routingKey": f"primary.{org}.{repo}.synchronize",
+        "routingKey": f"primary.{org}.{repo_name}.synchronize",
         "payload": {
-            "repository": repo,
+            "repository": repo_name,
             "organization": org,
-            "action": "synchronize",
+            "action": "synchronize",  # Assuming 'synchronize' is the desired action for ingestion
             "details": {
-                "event.pullNumber": pull_number,
-                "event.base.repo.url": f"https://github.com/{org}/{repo}.git",
-                "event.head.repo.url": f"https://github.com/{org}/{repo}.git",
+                "event.pullNumber": pr.number,
+                "event.base.repo.url": pr.base.repo.clone_url,
+                "event.head.repo.url": pr.head.repo.clone_url,
+                "event.base.sha": pr.base.sha,
+                "event.head.sha": pr.head.sha,
             },
         },
     }
@@ -276,49 +292,76 @@ def query_data(repo_meta, commit):
     event_base_sha = repo_meta["branch"]
     # First we try with `master` being the base sha
     # e.g. https://api.github.com/repos/servo/servo/compare/master...1418c0555ff77e5a3d6cf0c6020ba92ece36be2e
-    compare_response = github.compare_shas(
+    compare_result = github.compare_shas(
         repo_meta["owner"], repo_meta["repo"], repo_meta["branch"], commit
     )
-    merge_base_commit = compare_response.get("merge_base_commit")
-    if merge_base_commit:
-        commiter_date = merge_base_commit["commit"]["committer"]["date"]
+    merge_base_commit_obj = compare_result.merge_base_commit
+
+    if merge_base_commit_obj:
+        committer_date = merge_base_commit_obj.commit.committer.date
         # Since we don't use PushEvents that contain the "before" or "event.base.sha" fields [1]
         # we need to discover the right parent which existed in the base branch.
         # [1] https://github.com/taskcluster/taskcluster/blob/3dda0adf85619d18c5dcf255259f3e274d2be346/services/github/src/api.js#L55
-        parents = compare_response["merge_base_commit"]["parents"]
+        parents = merge_base_commit_obj.parents
         if len(parents) == 1:
             parent = parents[0]
-            commit_info = fetch_api_full_url(parent["url"])
-            committer_date = commit_info["commit"]["committer"]["date"]
+            parent_commit_obj = github.get_commit(repo_meta["owner"], repo_meta["repo"], parent.sha)
+            parent_committer_date = parent_commit_obj.commit.committer.date
             # All commits involved in a PR share the same committer's date
-            if merge_base_commit["commit"]["committer"]["date"] == committer_date:
+            if committer_date == parent_committer_date:
                 # Recursively find the forking parent
-                event_base_sha, _ = query_data(repo_meta, parent["sha"])
+                event_base_sha, _ = query_data(repo_meta, parent.sha)
             else:
-                event_base_sha = parent["sha"]
+                event_base_sha = parent.sha
         else:
+            event_base_sha = None  # Initialize in case no suitable parent is found
             for parent in parents:
-                _commit = fetch_api_full_url(parent["url"])
+                _commit = github.get_commit(repo_meta["owner"], repo_meta["repo"], parent.sha)
                 # All commits involved in a merge share the same committer's date
-                if commiter_date != _commit["commit"]["committer"]["date"]:
-                    event_base_sha = _commit["sha"]
+                if committer_date != _commit.commit.committer.date:
+                    event_base_sha = _commit.sha
                     break
+            if not event_base_sha:
+                # Fallback if no specific parent is found with different committer date
+                # This case might need more robust handling based on project-specific merge strategies
+                event_base_sha = repo_meta[
+                    "branch"
+                ]  # default to branch if no specific parent found
+
         # This is to make sure that the value has changed
-        assert event_base_sha != repo_meta["branch"]
-        logger.info("We have a new base: %s", event_base_sha)
-        # When using the correct event_base_sha the "commits" field will be correct
-        compare_response = github.compare_shas(
-            repo_meta["owner"], repo_meta["repo"], event_base_sha, commit
-        )
+        if event_base_sha == repo_meta["branch"]:
+            logger.warning("Event base SHA did not change from repo branch: %s", event_base_sha)
+        else:
+            logger.info("We have a new base: %s", event_base_sha)
+            # When using the correct event_base_sha the "commits" field will be correct
+            compare_result = github.compare_shas(
+                repo_meta["owner"], repo_meta["repo"], event_base_sha, commit
+            )
+    else:
+        # If no merge_base_commit, then the initial compare_result should be used
+        # and event_base_sha remains the initial branch.
+        event_base_sha = repo_meta["branch"]
 
     commits = []
-    for _commit in compare_response["commits"]:
+    for _commit in compare_result.commits:
         commits.append(
             {
-                "message": _commit["commit"]["message"],
-                "author": _commit["commit"]["author"],
-                "committer": _commit["commit"]["committer"],
-                "id": _commit["sha"],
+                "message": _commit.commit.message,
+                "author": {
+                    "name": _commit.commit.author.name,
+                    "email": _commit.commit.author.email,
+                    "date": _commit.commit.author.date,
+                }
+                if _commit.commit.author
+                else None,
+                "committer": {
+                    "name": _commit.commit.committer.name,
+                    "email": _commit.commit.committer.email,
+                    "date": _commit.commit.committer.date,
+                }
+                if _commit.commit.committer
+                else None,
+                "id": _commit.sha,
             }
         )
 
@@ -373,30 +416,55 @@ def ingest_git_pushes(project, dry_run=False):
 
     logger.info("--> Converting Github commits to pushes")
     _repo = repo_meta(project)
-    owner, repo = _repo["owner"], _repo["repo"]
-    github_commits = github.get_all_commits(owner, repo)
-    not_push_revision = []
+    owner, repo_name = _repo["owner"], _repo["repo"]
+    github_commits = github.get_all_commits(owner, repo_name)
+    not_push_revision = set()  # Use a set for faster lookups
     push_revision = []
     push_to_date = {}
-    for _commit in github_commits:
-        info = github.get_commit(owner, repo, _commit["sha"])
+
+    for _commit_obj in github_commits:
+        # PyGithub Commit object already contains most info.
+        # get_commit is used here for consistency if more detailed info is needed,
+        # but _commit_obj itself is often sufficient.
+        detailed_commit_obj = github.get_commit(owner, repo_name, _commit_obj.sha)
+
         # Revisions that are marked as non-push should be ignored
-        if _commit["sha"] in not_push_revision:
-            logger.debug("Not a revision of a push: {}".format(_commit["sha"]))
+        if detailed_commit_obj.sha in not_push_revision:
+            logger.debug("Not a revision of a push: %s", detailed_commit_obj.sha)
             continue
 
         # Establish which revisions to ignore
-        for index, parent in enumerate(info["parents"]):
-            if index != 0:
-                not_push_revision.append(parent["sha"])
+        # If a commit has multiple parents, only the first parent is considered the "mainline".
+        # Other parents represent merges and should not be treated as separate pushes.
+        if len(detailed_commit_obj.parents) > 1:
+            for index, parent in enumerate(detailed_commit_obj.parents):
+                if index != 0:
+                    not_push_revision.add(parent.sha)
 
-        # The 1st parent is the push from `master` from which we forked
-        oldest_parent_revision = info["parents"][0]["sha"]
-        push_to_date[oldest_parent_revision] = info["commit"]["committer"]["date"]
-        logger.info(
-            f"Push: {oldest_parent_revision} - Date: {push_to_date[oldest_parent_revision]}"
-        )
-        push_revision.append(_commit["sha"])
+        # The 1st parent is typically the push from `master` from which we forked (or the direct parent in a linear history)
+        if detailed_commit_obj.parents:
+            oldest_parent_revision = detailed_commit_obj.parents[0].sha
+            # PyGithub dates are datetime objects, convert to ISO format string if needed for consistency with original.
+            # detailed_commit_obj.commit.committer.date is a datetime object
+            push_to_date[oldest_parent_revision] = (
+                detailed_commit_obj.commit.committer.date.isoformat()
+            )
+            logger.info(
+                "Push: %s - Date: %s", oldest_parent_revision, push_to_date[oldest_parent_revision]
+            )
+        else:
+            # Handle initial commit case
+            oldest_parent_revision = detailed_commit_obj.sha
+            push_to_date[oldest_parent_revision] = (
+                detailed_commit_obj.commit.committer.date.isoformat()
+            )
+            logger.info(
+                "Initial Push: %s - Date: %s",
+                oldest_parent_revision,
+                push_to_date[oldest_parent_revision],
+            )
+
+        push_revision.append(detailed_commit_obj.sha)
 
     if not dry_run:
         logger.info("--> Ingest Github pushes")
