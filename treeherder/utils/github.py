@@ -1,58 +1,65 @@
 from github import Auth, Github
 
 from treeherder.config.settings import GITHUB_TOKEN
-from treeherder.utils.http import fetch_json
 
 if GITHUB_TOKEN:
     auth = Auth.Token(GITHUB_TOKEN)
-    github = Github(auth=auth)
+    github_client = Github(auth=auth)
 else:
-    github = Github()
+    github_client = Github()
 
 
-def fetch_api(path, params=None):
-    return fetch_api_full_url(f"https://api.github.com/{path}", params)
+def get_github_repo(owner, repo_name):
+    """
+    Returns a PyGithub Repository object.
+    """
+    return github_client.get_repo(f"{owner}/{repo_name}")
 
 
-def fetch_api_full_url(url, params=None):
-    if GITHUB_TOKEN:
-        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    else:
-        headers = {}
-    return fetch_json(url, params, headers)
+def get_releases(owner, repo_name):
+    """
+    Returns a PaginatedList of PyGithub Release objects.
+    """
+    repo = get_github_repo(owner, repo_name)
+    return repo.get_releases()
 
 
-def get_releases(owner, repo, params=None):
-    return fetch_api(f"repos/{owner}/{repo}/releases", params)
+def compare_shas(owner, repo_name, base, head):
+    """
+    Returns a PyGithub CommitComparison object.
+    """
+    repo = get_github_repo(owner, repo_name)
+    return repo.compare(base, head)
 
 
-def get_repo(owner, repo, params=None):
-    return fetch_api(f"{owner}/{repo}", params)
+def get_all_commits(owner, repo_name, params=None):
+    """
+    Returns a PaginatedList of PyGithub Commit objects.
+    Optional params: sha, since, until, path, author, committer, per_page.
+    """
+    repo = get_github_repo(owner, repo_name)
+    return repo.get_commits(**(params or {}))
 
 
-def pygithub_get_repo(owner, repo):
-    return github.get_repo(f"{owner}/{repo}")
+def get_commit(owner, repo_name, sha):
+    """
+    Returns a PyGithub Commit object.
+    """
+    repo = get_github_repo(owner, repo_name)
+    return repo.get_commit(sha)
 
 
-def compare_shas(owner, repo, base, head):
-    repo = pygithub_get_repo(owner, repo)
-    comparison = repo.compare(base, head)
-    return [commit for commit in comparison.commits]
-
-
-def get_all_commits(owner, repo, params=None):
-    return fetch_api(f"repos/{owner}/{repo}/commits", params)
-
-
-def get_commit(owner, repo, sha, params=None):
-    return fetch_api(f"repos/{owner}/{repo}/commits/{sha}", params)
-
-
-def get_pull_request(owner, repo, pr_id):
-    repo = pygithub_get_repo(owner, repo)
+def get_pull_request(owner, repo_name, pr_id):
+    """
+    Returns a PyGithub PullRequest object.
+    """
+    repo = get_github_repo(owner, repo_name)
     return repo.get_pull(pr_id)
 
 
-def get_pull_request_commits(owner, repo, pr_id):
-    pr = get_pull_request(owner, repo, pr_id)
-    return [commit for commit in pr.get_commits()]
+def get_pull_request_commits(owner, repo_name, pr_id):
+    """
+    Returns a PaginatedList of PyGithub Commit objects associated with a PR.
+    """
+    pr = get_pull_request(owner, repo_name, pr_id)
+    return pr.get_commits()
