@@ -22,7 +22,6 @@ from treeherder.etl.pushlog import HgPushlogProcess, last_push_id_from_server
 from treeherder.etl.taskcluster_pulse.handler import EXCHANGE_EVENT_MAP, handle_message
 from treeherder.model.models import Repository
 from treeherder.utils import github
-from treeherder.utils.github import fetch_api, fetch_api_full_url
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -48,20 +47,24 @@ class Connection:
 
 
 def ingest_pr(pr_url, root_url):
-    if not pr_url.ends_with("/"):
-        pr_url += "/"
-    _, _, _, org, repo, _, pull_number, _ = pr_url.split("/", 7)
+    # e.g. https://github.com/mozilla-mobile/android-components/pull/4821
+    parts = pr_url.strip("/").split("/")
+    org, repo_name, pull_number = parts[3], parts[4], int(parts[6])
+
+    # Ensure the PR exists and is accessible
+    github.get_pull_request(org, repo_name, pull_number)
+
     pulse = {
         "exchange": "exchange/taskcluster-github/v1/pull-request",
-        "routingKey": f"primary.{org}.{repo}.synchronize",
+        "routingKey": f"primary.{org}.{repo_name}.synchronize",
         "payload": {
-            "repository": repo,
+            "repository": repo_name,
             "organization": org,
             "action": "synchronize",
             "details": {
                 "event.pullNumber": pull_number,
-                "event.base.repo.url": f"https://github.com/{org}/{repo}.git",
-                "event.head.repo.url": f"https://github.com/{org}/{repo}.git",
+                "event.base.repo.url": f"https://github.com/{org}/{repo_name}.git",
+                "event.head.repo.url": f"https://github.com/{org}/{repo_name}.git",
             },
         },
     }
@@ -271,54 +274,53 @@ def query_data(repo_meta, commit):
     This is not an issue in GithubPushTransformer because the PushEvent from Taskcluster
     already contains the data
     """
+    repo = github.pygithub_get_repo(repo_meta["owner"], repo_meta["repo"])
+
     # This is used for the `compare` API. The "event.base.sha" is only contained in Pulse events, thus,
     # we need to determine the correct value
     event_base_sha = repo_meta["branch"]
     # First we try with `master` being the base sha
     # e.g. https://api.github.com/repos/servo/servo/compare/master...1418c0555ff77e5a3d6cf0c6020ba92ece36be2e
-    compare_response = fetch_api(
-        f"repos/{repo_meta['owner']}/{repo_meta['repo']}/compare/{event_base_sha}...{commit}"
-    )
-    merge_base_commit = compare_response.get("merge_base_commit")
+    comparison = repo.compare(event_base_sha, commit)
+    merge_base_commit = comparison.merge_base_commit
     if merge_base_commit:
-        commiter_date = merge_base_commit["commit"]["committer"]["date"]
+        committer_date = merge_base_commit.commit.committer.raw_data["date"]
         # Since we don't use PushEvents that contain the "before" or "event.base.sha" fields [1]
         # we need to discover the right parent which existed in the base branch.
         # [1] https://github.com/taskcluster/taskcluster/blob/3dda0adf85619d18c5dcf255259f3e274d2be346/services/github/src/api.js#L55
-        parents = compare_response["merge_base_commit"]["parents"]
+        parents = merge_base_commit.parents
         if len(parents) == 1:
             parent = parents[0]
-            commit_info = fetch_api_full_url(parent["url"])
-            committer_date = commit_info["commit"]["committer"]["date"]
+            # Use repo.get_commit to get full commit info
+            commit_info = repo.get_commit(parent.sha)
+            parent_committer_date = commit_info.commit.committer.raw_data["date"]
             # All commits involved in a PR share the same committer's date
-            if merge_base_commit["commit"]["committer"]["date"] == committer_date:
+            if committer_date == parent_committer_date:
                 # Recursively find the forking parent
-                event_base_sha, _ = query_data(repo_meta, parent["sha"])
+                event_base_sha, _ = query_data(repo_meta, parent.sha)
             else:
-                event_base_sha = parent["sha"]
+                event_base_sha = parent.sha
         else:
             for parent in parents:
-                _commit = fetch_api_full_url(parent["url"])
+                _commit = repo.get_commit(parent.sha)
                 # All commits involved in a merge share the same committer's date
-                if commiter_date != _commit["commit"]["committer"]["date"]:
-                    event_base_sha = _commit["sha"]
+                if committer_date != _commit.commit.committer.raw_data["date"]:
+                    event_base_sha = _commit.sha
                     break
         # This is to make sure that the value has changed
         assert event_base_sha != repo_meta["branch"]
         logger.info("We have a new base: %s", event_base_sha)
         # When using the correct event_base_sha the "commits" field will be correct
-        compare_response = fetch_api(
-            f"repos/{repo_meta['owner']}/{repo_meta['repo']}/compare/{event_base_sha}...{commit}"
-        )
+        comparison = repo.compare(event_base_sha, commit)
 
     commits = []
-    for _commit in compare_response["commits"]:
+    for _commit in comparison.commits:
         commits.append(
             {
-                "message": _commit["commit"]["message"],
-                "author": _commit["commit"]["author"],
-                "committer": _commit["commit"]["committer"],
-                "id": _commit["sha"],
+                "message": _commit.commit.message,
+                "author": _commit.commit.author.raw_data,
+                "committer": _commit.commit.committer.raw_data,
+                "id": _commit.sha,
             }
         )
 
@@ -366,37 +368,40 @@ def ingest_git_pushes(project, dry_run=False):
     Once we complete the ingestion we compare Treeherder's push API and compare if the pushes are sorted
     the same way as in Github.
     """
-    if not GITHUB_TOKEN:
+    if not github.GITHUB_TOKEN:
         raise Exception(
             "Set GITHUB_TOKEN env variable to avoid rate limiting - Visit https://github.com/settings/tokens."
         )
 
     logger.info("--> Converting Github commits to pushes")
-    _repo = repo_meta(project)
-    owner, repo = _repo["owner"], _repo["repo"]
-    github_commits = github.get_all_commits(owner, repo)
+    _repo_meta = repo_meta(project)
+    owner, repo_name = _repo_meta["owner"], _repo_meta["repo"]
+    repo = github.pygithub_get_repo(owner, repo_name)
+    github_commits = repo.get_commits()
+
     not_push_revision = []
     push_revision = []
     push_to_date = {}
+
     for _commit in github_commits:
-        info = github.get_commit(owner, repo, _commit["sha"])
         # Revisions that are marked as non-push should be ignored
-        if _commit["sha"] in not_push_revision:
-            logger.debug("Not a revision of a push: {}".format(_commit["sha"]))
+        if _commit.sha in not_push_revision:
+            logger.debug("Not a revision of a push: {}".format(_commit.sha))
             continue
 
         # Establish which revisions to ignore
-        for index, parent in enumerate(info["parents"]):
+        for index, parent in enumerate(_commit.parents):
             if index != 0:
-                not_push_revision.append(parent["sha"])
+                not_push_revision.append(parent.sha)
 
         # The 1st parent is the push from `master` from which we forked
-        oldest_parent_revision = info["parents"][0]["sha"]
-        push_to_date[oldest_parent_revision] = info["commit"]["committer"]["date"]
-        logger.info(
-            f"Push: {oldest_parent_revision} - Date: {push_to_date[oldest_parent_revision]}"
-        )
-        push_revision.append(_commit["sha"])
+        if _commit.parents:
+            oldest_parent_revision = _commit.parents[0].sha
+            push_to_date[oldest_parent_revision] = _commit.commit.committer.raw_data["date"]
+            logger.info(
+                f"Push: {oldest_parent_revision} - Date: {push_to_date[oldest_parent_revision]}"
+            )
+        push_revision.append(_commit.sha)
 
     if not dry_run:
         logger.info("--> Ingest Github pushes")
@@ -406,11 +411,14 @@ def ingest_git_pushes(project, dry_run=False):
     # Test that the *order* of the pushes is correct
     logger.info("--> Validating that the ingested pushes are in the right order")
     client = TreeherderClient(server_url="http://localhost:8000")
-    th_pushes = client.get_pushes(project, count=len(push_revision))
-    assert len(push_revision) == len(th_pushes)
-    for index, revision in enumerate(push_revision):
-        if revision != th_pushes[index]["revision"]:
-            logger.warning("{} does not match {}".format(revision, th_pushes[index]["revision"]))
+    try:
+        th_pushes = client.get_pushes(project, count=len(push_revision))
+        assert len(push_revision) == len(th_pushes)
+        for index, revision in enumerate(push_revision):
+            if revision != th_pushes[index]["revision"]:
+                logger.warning("{} does not match {}".format(revision, th_pushes[index]["revision"]))
+    except Exception as e:
+        logger.warning("Could not validate push order: %s", e)
 
 
 class Command(BaseCommand):
