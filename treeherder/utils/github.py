@@ -1,7 +1,6 @@
 from github import Auth, Github
 
 from treeherder.config.settings import GITHUB_TOKEN
-from treeherder.utils.http import fetch_json
 
 if GITHUB_TOKEN:
     auth = Auth.Token(GITHUB_TOKEN)
@@ -10,24 +9,13 @@ else:
     github = Github()
 
 
-def fetch_api(path, params=None):
-    return fetch_api_full_url(f"https://api.github.com/{path}", params)
+def get_releases(owner, repo):
+    repo = pygithub_get_repo(owner, repo)
+    return repo.get_releases()
 
 
-def fetch_api_full_url(url, params=None):
-    if GITHUB_TOKEN:
-        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    else:
-        headers = {}
-    return fetch_json(url, params, headers)
-
-
-def get_releases(owner, repo, params=None):
-    return fetch_api(f"repos/{owner}/{repo}/releases", params)
-
-
-def get_repo(owner, repo, params=None):
-    return fetch_api(f"{owner}/{repo}", params)
+def get_repo(owner, repo):
+    return pygithub_get_repo(owner, repo)
 
 
 def pygithub_get_repo(owner, repo):
@@ -41,11 +29,15 @@ def compare_shas(owner, repo, base, head):
 
 
 def get_all_commits(owner, repo, params=None):
-    return fetch_api(f"repos/{owner}/{repo}/commits", params)
+    repo = pygithub_get_repo(owner, repo)
+    if params:
+        return repo.get_commits(**params)
+    return repo.get_commits()
 
 
-def get_commit(owner, repo, sha, params=None):
-    return fetch_api(f"repos/{owner}/{repo}/commits/{sha}", params)
+def get_commit(owner, repo, sha):
+    repo = pygithub_get_repo(owner, repo)
+    return repo.get_commit(sha)
 
 
 def get_pull_request(owner, repo, pr_id):

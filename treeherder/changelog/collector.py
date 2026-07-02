@@ -21,44 +21,47 @@ class GitHub:
         owner = kw["user"]
         repository = kw["repository"]
         filters = kw.get("filters")
-        gh_options = {"number": kw.get("number", MAX_ITEMS)}
+        gh_options = {}
 
-        for release in github.get_releases(owner, repository, params=gh_options):
-            release["files"] = []
+        for release in github.get_releases(owner, repository):
             # no "since" option for releases() we filter manually here
-            if "since" in kw and release["published_at"] <= kw["since"]:
+            if "since" in kw and release.published_at <= kw["since"]:
                 continue
-            name = release["name"] or release["tag_name"]
             yield {
-                "date": release["published_at"],
-                "author": release["author"]["login"],
-                "message": "Released " + name,
-                "remote_id": release["id"],
+                "date": release.published_at,
+                "author": release.author.login,
+                "message": "Released " + (release.name or release.tag_name),
+                "remote_id": release.id,
                 "type": "release",
-                "url": release["html_url"],
+                "url": release.html_url,
             }
 
         if "since" in kw:
             gh_options["since"] = kw["since"]
 
-        for commit in github.get_all_commits(owner, repository, params=gh_options):
+        # Limit the number of commits
+        commits = github.get_all_commits(owner, repository, params=gh_options)
+        for i, commit in enumerate(commits):
+            if i >= kw.get("number", MAX_ITEMS):
+                break
+
+            files = []
             if filters:
-                for filter in filters:
-                    if isinstance(filter, list) and filter[0] == "filter_by_path":
-                        commit_info = github.get_commit(owner, repository, commit["sha"])
-                        commit["files"] = commit_info["files"]
+                for filter_obj in filters:
+                    if isinstance(filter_obj, list) and filter_obj[0] == "filter_by_path":
+                        commit_detailed = github.get_commit(owner, repository, commit.sha)
+                        files = [f.filename for f in commit_detailed.files]
                         break
 
-            message = commit["commit"]["message"]
-            message = message.split("\n")[0]
+            message = commit.commit.message.split("\n")[0]
             res = {
-                "date": commit["commit"]["author"]["date"],
-                "author": commit["commit"]["author"]["name"],
+                "date": commit.commit.author.date,
+                "author": commit.commit.author.name,
                 "message": message,
-                "remote_id": commit["sha"],
+                "remote_id": commit.sha,
                 "type": "commit",
-                "url": commit["html_url"],
-                "files": [f["filename"] for f in commit.get("files", [])],
+                "url": commit.html_url,
+                "files": files,
             }
             res = self.filters(res, filters)
             if res:
