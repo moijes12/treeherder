@@ -64,6 +64,7 @@ The following phases are designed to be broken down into individual Bugzilla tic
 1. **Store Coverage (Zustand):** Increase coverage of `selectedJobStore.js` and `pushesStore.js` to >80%, focusing on error handling during fetch failures.
 2. **Helper Utilities:** Target 100% coverage for critical helpers in `ui/helpers/` (e.g., `taskcluster.js`, `location.js`).
 3. **Backend Utils:** Increase coverage for common utilities in `treeherder/utils/`.
+4. **ETL Failure Mode Coverage:** Implement unit tests for `treeherder/etl/` that specifically simulate failures in external APIs (Taskcluster, Bugzilla) and Pulse message drops, ensuring robust error recovery.
 
 ### Phase 3: High-Impact UI Components
 
@@ -79,4 +80,5 @@ The following phases are designed to be broken down into individual Bugzilla tic
 
 1. **Expanded Integration Suite:** Add PollyJS-backed integration tests for the "Perfherder" views.
 2. **Pulse/Taskcluster Simulation:** Improve backend test fixtures for Pulse consumers to better simulate real-world data lag and malformed payloads.
-3. **Accessibility Testing:** Integrate automated accessibility checks (e.g., `jest-axe`) into the frontend test suite.
+3. **Performance Test Optimization:** Audit and optimize existing performance tests in `tests/perf/` to reduce their runtime, facilitating more frequent execution during development.
+4. **Accessibility Testing:** Integrate automated accessibility checks (e.g., `jest-axe`) into the frontend test suite.
