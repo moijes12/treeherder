@@ -45,7 +45,50 @@ This document provides an audit of the current testing state of the Treeherder p
 
 ---
 
-## 3. Phased Roadmap
+## 3. Enhancement through Testing Types (Phased Approach)
+
+Different testing types provide varied layers of confidence. We will integrate them in phases to avoid overwhelming the development cycle.
+
+- **Unit Tests (Phase 1-2):** Essential for verifying isolated logic. High ROI on stores and utility functions.
+- **Integration Tests (Phase 2-4):** Verify that frontend components interact correctly with backend APIs (using PollyJS). Crucial for catching contract breaks.
+- **End-to-End (E2E) Tests (Phase 4):** Use Puppeteer/Playwright to verify critical user journeys (e.g., logging in, filtering jobs).
+- **Accessibility Tests (Phase 4):** Automated `axe-core` checks to ensure the dashboard is usable by everyone.
+- **Performance Regression Tests (Phase 4):** Ensure new code doesn't degrade UI responsiveness or backend ingestion throughput.
+
+---
+
+## 4. Thresholds and Guardrails
+
+To maintain quality, we will implement the following guardrails:
+
+### 4.1 Development
+
+- **Pre-commit Hooks:** Mandatory ruff, biome, and markdownlint checks.
+- **Local Coverage Reports:** Developers are encouraged to run tests with `--coverage` before submitting PRs.
+
+### 4.2 Testing (CI)
+
+- **Codecov Thresholds:** Fail PRs if coverage drops by more than 1% or if new code is below 40% (current) / 60% (future target).
+- **Required Status Checks:** JS and Python test suites must pass 100% on master and PR branches.
+
+### 4.3 Production
+
+- **Error Rate Monitoring:** Use Sentry/New Relic to track 5xx errors and JS exceptions.
+- **Canary Health Checks:** Automated validation of key endpoints during deployment.
+
+---
+
+## 5. Production Canaries (GCP Strategy)
+
+Given Treeherder's deployment to GCP (via GAR and potentially GKE or Cloud Run), canaries provide a safe way to roll out changes.
+
+- **Traffic Splitting:** Use GKE Ingress or Cloud Run traffic management to route 5-10% of traffic to the "prototype" or "new-release" version.
+- **Automated Rollbacks:** Monitor canary health (HTTP 200 rates, latency) and automatically revert traffic if regressions are detected.
+- **Staged Rollout:** Gradually increase traffic (10% -> 25% -> 50% -> 100%) after verification at each stage.
+
+---
+
+## 6. Phased Roadmap
 
 The following phases are designed to be broken down into individual Bugzilla tickets.
 
