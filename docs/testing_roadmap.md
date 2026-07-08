@@ -16,6 +16,7 @@ This document provides an audit of the current testing state of the Treeherder p
 - **Framework:** [Pytest](https://pytest.org/) with `pytest-django`.
 - **Environment:** [Tox](https://tox.wiki/) is used to manage test environments and run tests across different segments (general, perf, telemetry, frontend).
 - **Services:** Relies on Docker Compose to provide PostgreSQL, Redis, and RabbitMQ.
+- **Coverage Location:** Backend coverage is currently reported via Codecov from the `python-tests-*` CircleCI jobs.
 - **Location:** Tests are located in the `tests/` directory.
 
 ### 1.3 Continuous Integration
@@ -41,19 +42,30 @@ This document provides an audit of the current testing state of the Treeherder p
 ### 2.3 Backend Coverage Gaps
 
 - **ETL Logic:** While many ETL processes are tested, the complexity of Taskcluster and Pulse interactions means many failure modes are only covered by basic mocks.
+- **Database Layer Tests:** Many model methods in `treeherder/model/models.py` lack direct unit tests, relying instead on high-level API tests.
+- **Celery Worker Reliability:** Testing of Celery tasks in `treeherder/workers/` is often done in "eager" mode, which misses issues related to serialization or distributed state.
 - **Performance Testing:** Performance tests exist but are sharded and slow, leading to them often being skipped during local development.
 
 ---
 
 ## 3. Enhancement through Testing Types (Phased Approach)
 
-Different testing types provide varied layers of confidence. We will integrate them in phases to avoid overwhelming the development cycle.
+### 3.1 Unit Tests (Phase 1-2)
 
-- **Unit Tests (Phase 1-2):** Essential for verifying isolated logic. High ROI on stores and utility functions.
-- **Integration Tests (Phase 2-4):** Verify that frontend components interact correctly with backend APIs (using PollyJS). Crucial for catching contract breaks.
-- **End-to-End (E2E) Tests (Phase 4):** Use Puppeteer/Playwright to verify critical user journeys (e.g., logging in, filtering jobs).
-- **Accessibility Tests (Phase 4):** Automated `axe-core` checks to ensure the dashboard is usable by everyone.
-- **Performance Regression Tests (Phase 4):** Ensure new code doesn't degrade UI responsiveness or backend ingestion throughput.
+- **Frontend:** Isolated logic in Zustand stores and UI helpers.
+- **Backend:** Direct testing of Django model methods, service layer functions, and ETL transformation logic without external side effects.
+
+### 3.2 Integration Tests (Phase 2-4)
+
+- **Frontend-Backend:** Verifying components interact correctly with backend APIs (using PollyJS).
+- **Service Integration:** Verifying Treeherder interacts correctly with mock Taskcluster/Bugzilla APIs using the `responses` library.
+- **Celery Integration:** Moving beyond "eager" mode to test tasks in a real RabbitMQ/Redis environment in specific CI shards.
+
+### 3.3 End-to-End (E2E) and Specialized Tests (Phase 4)
+
+- **User Journeys:** Using Puppeteer/Playwright to verify critical flows (Login -> Filter -> Job Details).
+- **Accessibility:** Automated `axe-core` checks.
+- **Performance Regression:** Ensuring ingestion throughput (jobs/sec) doesn't degrade.
 
 ---
 
@@ -63,8 +75,8 @@ To maintain quality, we will implement the following guardrails:
 
 ### 4.1 Development
 
-- **Pre-commit Hooks:** Mandatory ruff, biome, and markdownlint checks.
-- **Local Coverage Reports:** Developers are encouraged to run tests with `--coverage` before submitting PRs.
+- **Pre-commit Hooks:** Mandatory ruff, black, biome, and markdownlint checks.
+- **Local Coverage Reports:** Developers are encouraged to run `pytest --cov` or `pnpm test:coverage` before submitting PRs.
 
 ### 4.2 Testing (CI)
 
@@ -104,18 +116,19 @@ The following phases are designed to be broken down into individual Bugzilla tic
 
 *Goal: Secure the "brain" of the application.*
 
-1. **Store Coverage (Zustand):** Increase coverage of `selectedJobStore.js` and `pushesStore.js` to >80%, focusing on error handling during fetch failures.
-2. **Helper Utilities:** Target 100% coverage for critical helpers in `ui/helpers/` (e.g., `taskcluster.js`, `location.js`).
-3. **Backend Utils:** Increase coverage for common utilities in `treeherder/utils/`.
-4. **ETL Failure Mode Coverage:** Implement unit tests for `treeherder/etl/` that specifically simulate failures in external APIs (Taskcluster, Bugzilla) and Pulse message drops, ensuring robust error recovery.
+1. **Backend Model Tests:** Add unit tests for critical methods in `treeherder/model/models.py` and `treeherder/perf/models.py`.
+2. **ETL Failure Mode Coverage:** Implement unit tests for `treeherder/etl/` that specifically simulate failures in external APIs (Taskcluster, Bugzilla) and Pulse message drops.
+3. **Store Coverage (Zustand):** Increase coverage of `selectedJobStore.js` and `pushesStore.js` to >80%.
+4. **Helper Utilities:** Target 100% coverage for critical helpers in `ui/helpers/` (e.g., `taskcluster.js`, `location.js`).
 
-### Phase 3: High-Impact UI Components
+### Phase 3: High-Impact Components and Workers
 
-*Goal: Fortify the most used parts of the Treeherder dashboard.*
+*Goal: Fortify the most used parts of the Treeherder dashboard and async workers.*
 
-1. **Job View Fortification:** Increase coverage for `JobArtifacts.jsx` and `JobInfo.jsx`.
-2. **Revision Details:** Focus on `RevisionInformation.jsx` and `RevisionLinkify.jsx` to ensure commit data is always rendered correctly.
-3. **Auth Callback Reliability:** Rewrite or expand tests for `TaskclusterCallback.jsx` to handle various authentication failure scenarios.
+1. **Celery Task Verification:** Increase testing depth for `treeherder/workers/`, ensuring tasks are verified for serialization and error handling.
+2. **Job View Fortification:** Increase coverage for `JobArtifacts.jsx` and `JobInfo.jsx`.
+3. **Revision Details:** Focus on `RevisionInformation.jsx` and `RevisionLinkify.jsx` to ensure commit data is always rendered correctly.
+4. **Auth Callback Reliability:** Rewrite or expand tests for `TaskclusterCallback.jsx`.
 
 ### Phase 4: Integration and End-to-End Depth
 
@@ -123,5 +136,5 @@ The following phases are designed to be broken down into individual Bugzilla tic
 
 1. **Expanded Integration Suite:** Add PollyJS-backed integration tests for the "Perfherder" views.
 2. **Pulse/Taskcluster Simulation:** Improve backend test fixtures for Pulse consumers to better simulate real-world data lag and malformed payloads.
-3. **Performance Test Optimization:** Audit and optimize existing performance tests in `tests/perf/` to reduce their runtime, facilitating more frequent execution during development.
+3. **Performance Test Optimization:** Audit and optimize existing performance tests in `tests/perf/` to reduce their runtime.
 4. **Accessibility Testing:** Integrate automated accessibility checks (e.g., `jest-axe`) into the frontend test suite.
