@@ -43,6 +43,7 @@ This document provides an audit of the current testing state of the Treeherder p
 
 - **ETL Logic:** While many ETL processes are tested, the complexity of Taskcluster and Pulse interactions means many failure modes are only covered by basic mocks.
 - **Database Layer Tests:** Many model methods in `treeherder/model/models.py` lack direct unit tests, relying instead on high-level API tests.
+- **Service Layer Mocking:** Testing of services in `treeherder/services/` often relies on high-level monkeypatching that can be fragile. There is a lack of granular unit tests for Taskcluster and Pulse client wrappers.
 - **Celery Worker Reliability:** Testing of Celery tasks in `treeherder/workers/` is often done in "eager" mode, which misses issues related to serialization or distributed state.
 - **Performance Testing:** Performance tests exist but are sharded and slow, leading to them often being skipped during local development.
 
@@ -53,7 +54,12 @@ This document provides an audit of the current testing state of the Treeherder p
 ### 3.1 Unit Tests (Phase 1-2)
 
 - **Frontend:** Isolated logic in Zustand stores and UI helpers.
-- **Backend:** Direct testing of Django model methods, service layer functions, and ETL transformation logic without external side effects.
+- **Backend:**
+  - **Models:** Direct testing of Django model methods (e.g., custom Managers and logic in `treeherder/model/models.py`).
+  - **Services:** Granular testing of service wrappers in `treeherder/services/`.
+    - **Taskcluster:** Verify URL generation, client instantiation, and error response handling in `taskcluster.py`.
+    - **Pulse:** Verify exchange configurations in `exchange.py` and message parsing logic in `consumers.py`.
+  - **ETL:** Transformation logic that converts external payloads to Treeherder models.
 
 ### 3.2 Integration Tests (Phase 2-4)
 
@@ -117,9 +123,11 @@ The following phases are designed to be broken down into individual Bugzilla tic
 *Goal: Secure the "brain" of the application.*
 
 1. **Backend Model Tests:** Add unit tests for critical methods in `treeherder/model/models.py` and `treeherder/perf/models.py`.
-2. **ETL Failure Mode Coverage:** Implement unit tests for `treeherder/etl/` that specifically simulate failures in external APIs (Taskcluster, Bugzilla) and Pulse message drops.
-3. **Store Coverage (Zustand):** Increase coverage of `selectedJobStore.js` and `pushesStore.js` to >80%.
-4. **Helper Utilities:** Target 100% coverage for critical helpers in `ui/helpers/` (e.g., `taskcluster.js`, `location.js`).
+2. **Service Layer Granularity:**
+   - **Taskcluster Unit Tests:** Create unit tests for `treeherder/services/taskcluster.py` that verify URL building logic and client factory behavior.
+   - **Pulse Consumer Tests:** Isolate and test message transformation logic in `treeherder/services/pulse/consumers.py`.
+3. **ETL Failure Mode Coverage:** Implement unit tests for `treeherder/etl/` that specifically simulate failures in external APIs (Taskcluster, Bugzilla) and Pulse message drops.
+4. **Store Coverage (Zustand):** Increase coverage of `selectedJobStore.js` and `pushesStore.js` to >80%.
 
 ### Phase 3: High-Impact Components and Workers
 
