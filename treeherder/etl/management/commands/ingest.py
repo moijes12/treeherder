@@ -274,7 +274,7 @@ def query_data(repo_meta, commit):
     This is not an issue in GithubPushTransformer because the PushEvent from Taskcluster
     already contains the data
     """
-    repo = github.pygithub_get_repo(repo_meta["owner"], repo_meta["repo"])
+    repo = github.get_repo(repo_meta["owner"], repo_meta["repo"])
 
     # This is used for the `compare` API. The "event.base.sha" is only contained in Pulse events, thus,
     # we need to determine the correct value
@@ -376,7 +376,7 @@ def ingest_git_pushes(project, dry_run=False):
     logger.info("--> Converting Github commits to pushes")
     _repo_meta = repo_meta(project)
     owner, repo_name = _repo_meta["owner"], _repo_meta["repo"]
-    repo = github.pygithub_get_repo(owner, repo_name)
+    repo = github.get_repo(owner, repo_name)
     github_commits = repo.get_commits()
 
     not_push_revision = []

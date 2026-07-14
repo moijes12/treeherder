@@ -60,8 +60,8 @@ def test_query_data_pygithub(monkeypatch):
     mock_repo.compare.side_effect = fake_compare
     mock_repo.get_commit.return_value = parent_commit
 
-    mock_pygithub_get_repo = MagicMock(return_value=mock_repo)
-    monkeypatch.setattr(ingest.github, "pygithub_get_repo", mock_pygithub_get_repo)
+    mock_get_repo = MagicMock(return_value=mock_repo)
+    monkeypatch.setattr(ingest.github, "get_repo", mock_get_repo)
 
     event_base_sha, commits = ingest.query_data(REPO_META, "HEAD")
 

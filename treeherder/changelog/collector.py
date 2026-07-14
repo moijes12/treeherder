@@ -23,11 +23,11 @@ class GitHub:
         filters = kw.get("filters")
         gh_options = {"number": kw.get("number", MAX_ITEMS)}
 
+        if "since" in kw:
+            gh_options["since"] = kw["since"]
+
         for release in github.get_releases(owner, repository, params=gh_options):
             release["files"] = []
-            # no "since" option for releases() we filter manually here
-            if "since" in kw and release["published_at"] <= kw["since"]:
-                continue
             name = release["name"] or release["tag_name"]
             yield {
                 "date": release["published_at"],
