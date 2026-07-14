@@ -15,6 +15,11 @@ def random_id():
     return binascii.hexlify(os.urandom(16)).decode("utf8")
 
 
+def prepare_responses():
+    # Placeholder for backward compatibility with tests/changelog/test_tasks.py
+    pass
+
+
 def mock_github(monkeypatch):
     now = datetime.now()
 

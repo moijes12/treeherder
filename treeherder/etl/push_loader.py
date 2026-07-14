@@ -1,6 +1,5 @@
 import datetime
 import logging
-from datetime import datetime
 
 import environ
 import newrelic.agent
@@ -112,7 +111,7 @@ class GithubTransformer:
             # The author's date is when the code was committed locally by the author
             # The committer's date is the info as to when the PR is merged (committed) into master
             "push_timestamp": head_commit.commit.committer.date.replace(
-                tzinfo=datetime.timezone.utc
+                tzinfo=datetime.UTC
             ).timestamp(),
             # We want the original author's email to show up in the UI
             "author": head_commit.commit.author.email,
@@ -193,7 +192,7 @@ class GithubPushTransformer(GithubTransformer):
         head = commits[-1]
         return {
             "revision": head["id"],
-            "push_timestamp": datetime.fromisoformat(head["timestamp"]).timestamp(),
+            "push_timestamp": datetime.datetime.fromisoformat(head["timestamp"]).timestamp(),
             "author": head["author"]["email"],
             "revisions": [
                 {
