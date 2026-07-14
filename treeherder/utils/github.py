@@ -4,6 +4,8 @@ from github import Auth, Github
 from github.Repository import Repository
 from github.Commit import Commit
 from github.PullRequest import PullRequest
+from github.GitRelease import GitRelease
+from github.PaginatedList import PaginatedList
 
 from treeherder.config.settings import GITHUB_TOKEN
 
@@ -14,17 +16,17 @@ else:
     github: Github = Github()
 
 
-def get_releases(owner: str, repo: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def get_releases(owner: str, repo: str, params: Optional[Dict[str, Any]] = None) -> List[GitRelease]:
     """
     Fetch releases for a given repository.
 
     :param owner: The owner of the repository.
     :param repo: The name of the repository.
     :param params: Optional parameters for filtering (e.g., 'since', 'number').
-    :return: A list of release data as dictionaries.
+    :return: A list of PyGithub GitRelease objects.
     """
     repository: Repository = get_repo(owner, repo)
-    releases = repository.get_releases()
+    releases: PaginatedList[GitRelease] = repository.get_releases()
 
     # Apply filtering by date if 'since' is provided in params
     if params and "since" in params:
@@ -41,8 +43,8 @@ def get_releases(owner: str, repo: str, params: Optional[Dict[str, Any]] = None)
 
     if params and "number" in params:
         # Replicating the old behavior where params['number'] limited the results
-        return [release.raw_data for release in releases[: params["number"]]]
-    return [release.raw_data for release in releases]
+        return [release for release in releases[: params["number"]]]
+    return [release for release in releases]
 
 
 def get_repo(owner: str, repo: str) -> Repository:
@@ -71,14 +73,14 @@ def compare_shas(owner: str, repo: str, base: str, head: str) -> List[Commit]:
     return [commit for commit in comparison.commits]
 
 
-def get_all_commits(owner: str, repo: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def get_all_commits(owner: str, repo: str, params: Optional[Dict[str, Any]] = None) -> List[Commit]:
     """
     Fetch all commits for a given repository.
 
     :param owner: The owner of the repository.
     :param repo: The name of the repository.
     :param params: Optional parameters for filtering (e.g., 'since', 'sha', 'number').
-    :return: A list of commit data as dictionaries.
+    :return: A list of PyGithub Commit objects.
     """
     repository: Repository = get_repo(owner, repo)
     gh_options: Dict[str, Any] = {}
@@ -88,23 +90,23 @@ def get_all_commits(owner: str, repo: str, params: Optional[Dict[str, Any]] = No
         if "sha" in params:
             gh_options["sha"] = params["sha"]
 
-    commits = repository.get_commits(**gh_options)
+    commits: PaginatedList[Commit] = repository.get_commits(**gh_options)
     if params and "number" in params:
-        return [commit.raw_data for commit in commits[: params["number"]]]
-    return [commit.raw_data for commit in commits]
+        return [commit for commit in commits[: params["number"]]]
+    return [commit for commit in commits]
 
 
-def get_commit(owner: str, repo: str, sha: str) -> Dict[str, Any]:
+def get_commit(owner: str, repo: str, sha: str) -> Commit:
     """
     Fetch a specific commit by its SHA.
 
     :param owner: The owner of the repository.
     :param repo: The name of the repository.
     :param sha: The commit SHA.
-    :return: The commit data as a dictionary.
+    :return: A PyGithub Commit object.
     """
     repository: Repository = get_repo(owner, repo)
-    return repository.get_commit(sha).raw_data
+    return repository.get_commit(sha)
 
 
 def get_pull_request(owner: str, repo: str, pr_id: int) -> PullRequest:

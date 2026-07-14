@@ -284,7 +284,7 @@ def query_data(repo_meta, commit):
     comparison = repo.compare(event_base_sha, commit)
     merge_base_commit = comparison.merge_base_commit
     if merge_base_commit:
-        committer_date = merge_base_commit.commit.committer.raw_data["date"]
+        committer_date = merge_base_commit.commit.committer.date.isoformat()
         # Since we don't use PushEvents that contain the "before" or "event.base.sha" fields [1]
         # we need to discover the right parent which existed in the base branch.
         # [1] https://github.com/taskcluster/taskcluster/blob/3dda0adf85619d18c5dcf255259f3e274d2be346/services/github/src/api.js#L55
@@ -293,7 +293,7 @@ def query_data(repo_meta, commit):
             parent = parents[0]
             # Use repo.get_commit to get full commit info
             commit_info = repo.get_commit(parent.sha)
-            parent_committer_date = commit_info.commit.committer.raw_data["date"]
+            parent_committer_date = commit_info.commit.committer.date.isoformat()
             # All commits involved in a PR share the same committer's date
             if committer_date == parent_committer_date:
                 # Recursively find the forking parent
@@ -304,7 +304,7 @@ def query_data(repo_meta, commit):
             for parent in parents:
                 _commit = repo.get_commit(parent.sha)
                 # All commits involved in a merge share the same committer's date
-                if committer_date != _commit.commit.committer.raw_data["date"]:
+                if committer_date != _commit.commit.committer.date.isoformat():
                     event_base_sha = _commit.sha
                     break
         # This is to make sure that the value has changed
@@ -318,8 +318,16 @@ def query_data(repo_meta, commit):
         commits.append(
             {
                 "message": _commit.commit.message,
-                "author": _commit.commit.author.raw_data,
-                "committer": _commit.commit.committer.raw_data,
+                "author": {
+                    "name": _commit.commit.author.name,
+                    "email": _commit.commit.author.email,
+                    "date": _commit.commit.author.date.isoformat(),
+                },
+                "committer": {
+                    "name": _commit.commit.committer.name,
+                    "email": _commit.commit.committer.email,
+                    "date": _commit.commit.committer.date.isoformat(),
+                },
                 "id": _commit.sha,
             }
         )
@@ -397,7 +405,7 @@ def ingest_git_pushes(project, dry_run=False):
         # The 1st parent is the push from `master` from which we forked
         if _commit.parents:
             oldest_parent_revision = _commit.parents[0].sha
-            push_to_date[oldest_parent_revision] = _commit.commit.committer.raw_data["date"]
+            push_to_date[oldest_parent_revision] = _commit.commit.committer.date.isoformat()
             logger.info(
                 f"Push: {oldest_parent_revision} - Date: {push_to_date[oldest_parent_revision]}"
             )

@@ -1,3 +1,4 @@
+import datetime
 import logging
 from datetime import datetime
 
@@ -110,7 +111,9 @@ class GithubTransformer:
             # A push can be co-authored
             # The author's date is when the code was committed locally by the author
             # The committer's date is the info as to when the PR is merged (committed) into master
-            "push_timestamp": head_commit.commit.committer.date.timestamp(),
+            "push_timestamp": head_commit.commit.committer.date.replace(
+                tzinfo=datetime.timezone.utc
+            ).timestamp(),
             # We want the original author's email to show up in the UI
             "author": head_commit.commit.author.email,
         }

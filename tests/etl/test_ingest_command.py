@@ -23,15 +23,19 @@ def test_query_data_pygithub(monkeypatch):
     c1 = MagicMock()
     c1.sha = "C1"
     c1.commit.message = "Fix the thing"
-    c1.commit.author.raw_data = {"name": "Dev", "email": "dev@example.com"}
-    c1.commit.committer.raw_data = {"date": "2026-02-02T00:00:00Z"}
+    c1.commit.author.name = "Dev"
+    c1.commit.author.email = "dev@example.com"
+    c1.commit.author.date.isoformat.return_value = "2026-02-02T00:00:00Z"
+    c1.commit.committer.name = "Dev"
+    c1.commit.committer.email = "dev@example.com"
+    c1.commit.committer.date.isoformat.return_value = "2026-02-02T00:00:00Z"
 
     # Define comparison results
     comp1 = MagicMock()
     # merge_base_commit
     mb1 = MagicMock()
     mb1.sha = "BASE"
-    mb1.commit.committer.raw_data = {"date": "2026-01-01T00:00:00Z"}
+    mb1.commit.committer.date.isoformat.return_value = "2026-01-01T00:00:00Z"
     p1 = MagicMock()
     p1.sha = "PARENT"
     mb1.parents = [p1]
@@ -48,7 +52,7 @@ def test_query_data_pygithub(monkeypatch):
     # Mock get_commit for the parent
     parent_commit = MagicMock()
     parent_commit.sha = "PARENT"
-    parent_commit.commit.committer.raw_data = {"date": "2026-02-02T00:00:00Z"}
+    parent_commit.commit.committer.date.isoformat.return_value = "2026-02-02T00:00:00Z"
 
     def fake_compare(base, head):
         if base == "main" and head == "HEAD":
@@ -69,8 +73,16 @@ def test_query_data_pygithub(monkeypatch):
     assert commits == [
         {
             "message": "Fix the thing",
-            "author": {"name": "Dev", "email": "dev@example.com"},
-            "committer": {"date": "2026-02-02T00:00:00Z"},
+            "author": {
+                "name": "Dev",
+                "email": "dev@example.com",
+                "date": "2026-02-02T00:00:00Z",
+            },
+            "committer": {
+                "name": "Dev",
+                "email": "dev@example.com",
+                "date": "2026-02-02T00:00:00Z",
+            },
             "id": "C1",
         }
     ]
