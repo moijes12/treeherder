@@ -3,75 +3,68 @@ import json
 import os
 import re
 from datetime import datetime, timedelta
+from unittest.mock import MagicMock
 
 import responses
 
 from treeherder.changelog.collector import collect
+from treeherder.utils import github
 
 
 def random_id():
     return binascii.hexlify(os.urandom(16)).decode("utf8")
 
 
-RELEASES = re.compile(r"https://api.github.com/repos/.*/.*/releases.*")
-COMMITS = re.compile(r"https://api.github.com/repos/.*/.*/commits\?.*")
-COMMIT_INFO = re.compile(r"https://api.github.com/repos/.*/.*/commits/.*")
+def mock_github(monkeypatch):
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    def mock_get_repo(owner_repo):
+        owner, repo_name = owner_repo.split("/")
+        mock_repo = MagicMock()
+        mock_repo.full_name = owner_repo
+        mock_repo.name = repo_name
 
-def prepare_responses():
-    now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-
-    def releases(request):
-        data = [
-            {
-                "name": "ok",
-                "published_at": now,
-                "id": random_id(),
-                "html_url": "url",
-                "tag_name": "some tag",
-                "author": {"login": "tarek"},
-            }
-        ]
-        return 200, {}, json.dumps(data)
-
-    responses.add_callback(
-        responses.GET, RELEASES, callback=releases, content_type="application/json"
-    )
-
-    def _commit():
-        files = [{"filename": "file1"}, {"filename": "file2"}]
-        return {
-            "files": files,
+        # Mock releases
+        mock_release = MagicMock()
+        mock_release.raw_data = {
             "name": "ok",
-            "sha": random_id(),
+            "published_at": now_str,
+            "id": random_id(),
             "html_url": "url",
             "tag_name": "some tag",
+            "author": {"login": "tarek"},
+        }
+        mock_release.published_at = now
+        mock_repo.get_releases.return_value = [mock_release]
+
+        # Mock commits
+        mock_commit_obj = MagicMock()
+        mock_commit_obj.sha = random_id()
+        mock_commit_obj.html_url = "url"
+        mock_commit_obj.commit.message = "yeah"
+        mock_commit_obj.commit.author.raw_data = {"name": "tarek", "date": now_str}
+        mock_commit_obj.raw_data = {
+            "sha": mock_commit_obj.sha,
+            "html_url": mock_commit_obj.html_url,
             "commit": {
                 "message": "yeah",
-                "author": {"name": "tarek", "date": now},
-                "files": files,
+                "author": {"name": "tarek", "date": now_str},
             },
+            "files": [{"filename": "config/config.yml"}],
         }
+        mock_repo.get_commits.return_value = [mock_commit_obj]
+        mock_repo.get_commit.return_value = mock_commit_obj
 
-    def commit(request):
-        return 200, {}, json.dumps(_commit())
+        return mock_repo
 
-    def commits(request):
-        return 200, {}, json.dumps([_commit()])
-
-    responses.add_callback(
-        responses.GET, COMMITS, callback=commits, content_type="application/json"
-    )
-    responses.add_callback(
-        responses.GET, COMMIT_INFO, callback=commit, content_type="application/json"
-    )
+    monkeypatch.setattr(github.github, "get_repo", mock_get_repo)
 
 
-@responses.activate
-def test_collect():
+def test_collect(monkeypatch):
     yesterday = datetime.now() - timedelta(days=1)
     yesterday = yesterday.strftime("%Y-%m-%dT%H:%M:%S")
-    prepare_responses()
+    mock_github(monkeypatch)
     res = list(collect(yesterday))
 
     # we're not looking into much details here, we can do this
