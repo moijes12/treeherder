@@ -17,21 +17,25 @@ load_json_fixture = SampleDataJSONLoader("sherlock")
 
 @pytest.fixture(scope="module")
 def actions_json():
+    """Load actions json sample fixture data."""
     return load_json_fixture("initialActions.json")
 
 
 @pytest.fixture(scope="module")
 def expected_actions_json():
+    """Load expected actions json sample fixture data."""
     return load_json_fixture("reducedActions.json")
 
 
 @pytest.fixture(scope="module")
 def original_task():
+    """Load original task sample fixture data."""
     return load_json_fixture("originalTask.json")
 
 
 @pytest.fixture(scope="module")
 def expected_backfill_task():
+    """Load expected backfill task sample fixture data."""
     return load_json_fixture("backfillTask.json")
 
 
@@ -40,6 +44,7 @@ class TestTaskclusterModelImpl:
     FAKE_OPTIONS = (FAKE_ROOT_URL, "FAKE_CLIENT_ID", "FAKE_ACCESS_TOKEN")
 
     def test_can_instantiate_without_credentials(self):
+        """Test instantiation of TaskclusterModelImpl without credentials parameter."""
         try:
             _ = TaskclusterModelImpl(self.FAKE_ROOT_URL)
         except ValueError:
@@ -48,6 +53,7 @@ class TestTaskclusterModelImpl:
             )
 
     def test_can_instantiate_with_credentials(self):
+        """Test instantiation of TaskclusterModelImpl with provided client ID and access token."""
         model = TaskclusterModelImpl(self.FAKE_ROOT_URL, client_id="my-client", access_token="my-token")
         client_id_val = model.hooks.options["credentials"]["clientId"]
         if isinstance(client_id_val, bytes):
@@ -60,6 +66,7 @@ class TestTaskclusterModelImpl:
         assert access_token_val == "my-token"
 
     def test_trigger_action(self, monkeypatch):
+        """Test trigger_action routes through actions loading, resolution, and submission."""
         model = TaskclusterModelImpl(self.FAKE_ROOT_URL)
 
         # Mock _load, _get_action, and _submit
@@ -79,11 +86,13 @@ class TestTaskclusterModelImpl:
         assert model.hooks.options["rootUrl"] == "https://newroot.org"
 
     def test_load_no_decision_task_id(self):
+        """Test that _load raises ValueError if no decision task ID is supplied."""
         model = TaskclusterModelImpl(self.FAKE_ROOT_URL)
         with pytest.raises(ValueError, match="No decision task, can't find taskcluster actions"):
             model._load("", "task123")
 
     def test_load_wrong_version(self, monkeypatch):
+        """Test that _load raises RuntimeError if the actions.json schema version is not supported."""
         model = TaskclusterModelImpl(self.FAKE_ROOT_URL)
 
         # Mock buildUrl and task definition
@@ -100,6 +109,7 @@ class TestTaskclusterModelImpl:
             model._load("decision123", "task123")
 
     def test_load_success(self, monkeypatch):
+        """Test successful loading and parsing of actions and static variables."""
         model = TaskclusterModelImpl(self.FAKE_ROOT_URL)
 
         monkeypatch.setattr(model.queue, "buildUrl", lambda name, *args: "https://fake-url.com")
@@ -126,6 +136,7 @@ class TestTaskclusterModelImpl:
         assert result["actions"][0]["name"] == "backfill"
 
     def test_submit_unsupported_kind(self):
+        """Test that submitting an action of an unsupported kind raises NotImplementedError."""
         model = TaskclusterModelImpl(self.FAKE_ROOT_URL)
         action = {"kind": "not-hook"}
         with pytest.raises(NotImplementedError, match="Unable to submit actions with 'not-hook' kind"):
@@ -138,6 +149,7 @@ class TestTaskclusterModelImpl:
             )
 
     def test_submit_hook_success(self, monkeypatch):
+        """Test successful action submission of hook kind."""
         model = TaskclusterModelImpl(self.FAKE_ROOT_URL)
 
         action = {
@@ -174,6 +186,7 @@ class TestTaskclusterModelImpl:
         assert triggered[0] == ("my-hook-group-id", "my-hook-id", {"taskGroupId": "decision123"})
 
     def test_submit_hook_unsatisfied_scopes(self, monkeypatch):
+        """Test that submitting a hook action without satisfying scopes raises RuntimeError."""
         model = TaskclusterModelImpl(self.FAKE_ROOT_URL)
 
         action = {
@@ -198,6 +211,7 @@ class TestTaskclusterModelImpl:
             )
 
     def test_filter_relevant_actions(self, actions_json, original_task, expected_actions_json):
+        """Test filtering actions down to the relevant ones for a given task context."""
         reduced_actions_json = TaskclusterModelImpl._filter_relevant_actions(
             actions_json, original_task
         )
@@ -205,6 +219,7 @@ class TestTaskclusterModelImpl:
         assert reduced_actions_json == expected_actions_json
 
     def test_task_in_context(self):
+        """Test identifying if a task matches action tag-sets."""
         # match
         tag_set_list, task_tags = (
             load_json_fixture(f) for f in ("matchingTagSetList.json", "matchingTaskTags.json")
@@ -218,28 +233,33 @@ class TestTaskclusterModelImpl:
         assert TaskclusterModelImpl._task_in_context(tag_set_list, task_tags) is False
 
     def test_task_in_context_empty_or_mismatch(self):
+        """Test task matching against empty context or mismatching tags."""
         # Empty context
         assert TaskclusterModelImpl._task_in_context([], {"a": "b"}) is False
         # Task with mismatching tags
         assert TaskclusterModelImpl._task_in_context([{"a": "b"}], {"c": "d"}) is False
 
     def test_get_action(self, actions_json, expected_backfill_task):
+        """Test selecting a specific action from a list of actions by name."""
         action_array = actions_json["actions"]
 
         backfill_task = TaskclusterModelImpl._get_action(action_array, "backfill")
         assert backfill_task == expected_backfill_task
 
     def test_get_action_lookup_error(self):
+        """Test that get_action raises LookupError when the requested action is missing."""
         action_array = [{"name": "foo"}]
         with pytest.raises(LookupError, match="bar action is not available for this task.  Available: foo"):
             TaskclusterModelImpl._get_action(action_array, "bar")
 
     def test_taskcluster_model_null_object(self):
+        """Test trigger_action on TaskclusterModelNullObject stub returns fake task ID."""
         obj = TaskclusterModelNullObject("https://fake-root.org")
         res = obj.trigger_action("backfill", "task123", "decision123", {})
         assert res.startswith("fake-backfill-task-id-for-task123-")
 
     def test_notify_null_object(self, caplog):
+        """Test NotifyNullObject stub logs email debug statements and doesn't send emails."""
         logger = logging.getLogger("treeherder.services.taskcluster")
         logger.setLevel(logging.DEBUG)
         obj = NotifyNullObject()
@@ -248,6 +268,7 @@ class TestTaskclusterModelImpl:
             assert "Faking sending of email `('arg1', 'arg2')`" in caplog.text
 
     def test_notify_adapter(self, monkeypatch):
+        """Test NotifyAdapter calls underlying taskcluster Notify client email method."""
         mock_notify_client = MagicMock()
         monkeypatch.setattr("taskcluster.Notify", lambda options, session: mock_notify_client)
 
@@ -258,19 +279,23 @@ class TestTaskclusterModelImpl:
 
 class TestTaskclusterModelFactory:
     def test_returns_null_object_on_non_production(self):
+        """Test taskcluster_model_factory returns stub on non-production environment."""
         notify = taskcluster_model_factory()
         assert isinstance(notify, TaskclusterModelNullObject)
 
     def test_returns_real_client_on_production(self, mock_tc_prod_backfill_credentials):
+        """Test taskcluster_model_factory returns implementation on production environment."""
         notify = taskcluster_model_factory()
         assert isinstance(notify, TaskclusterModelImpl)
 
 
 class TestNotifyClientFactory:
     def test_returns_null_object_on_non_production(self):
+        """Test notify_client_factory returns stub on non-production environment."""
         notify = notify_client_factory()
         assert isinstance(notify, NotifyNullObject)
 
     def test_returns_real_client_on_production(self, mock_tc_prod_notify_credentials):
+        """Test notify_client_factory returns NotifyAdapter on production environment."""
         notify = notify_client_factory()
         assert isinstance(notify, NotifyAdapter)

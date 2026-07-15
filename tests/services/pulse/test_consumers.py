@@ -30,6 +30,7 @@ from .utils import create_and_destroy_exchange
 
 
 def test_consumers():
+    """Test parallel consumers run setup and start threads as expected."""
     class TestConsumer:
         def prepare(self):
             self.prepared = True
@@ -51,6 +52,7 @@ def test_consumers():
 
 @pytest.mark.skipif(IS_WINDOWS, reason="celery does not work on windows")
 def test_pulse_consumer(pulse_connection):
+    """Test PulseConsumer setup prepares connection and exchange."""
     class TestConsumer(PulseConsumer):
         queue_suffix = "test"
 
@@ -72,6 +74,7 @@ def test_pulse_consumer(pulse_connection):
 
 
 def test_joint_consumer_on_message_do_not_call_classification_ingestion(monkeypatch):
+    """Test JointConsumer on_message does not trigger mozci classification if not a mozci task."""
     mock_called = False
 
     def mock_store_pulse_tasks_classification(args, queue):
@@ -108,6 +111,7 @@ def test_joint_consumer_on_message_do_not_call_classification_ingestion(monkeypa
 
 
 def test_joint_consumer_on_message_call_classification_ingestion(monkeypatch):
+    """Test JointConsumer on_message triggers mozci classification task when routing key matches."""
     mock_called = False
 
     def mock_store_pulse_tasks_classification(args, queue):
@@ -153,6 +157,7 @@ class DummyPulseConsumer(PulseConsumer):
 
 
 def test_pulse_consumer_bindings_default():
+    """Test base PulseConsumer returns empty bindings by default."""
     cons = DummyPulseConsumer(
         {
             "root_url": "https://firefox-ci-tc.services.mozilla.com",
@@ -164,6 +169,7 @@ def test_pulse_consumer_bindings_default():
 
 
 def test_get_consumers():
+    """Test that get_consumers instantiates a consumer object for each configured config dict."""
     cons = DummyPulseConsumer(
         {
             "root_url": "https://firefox-ci-tc.services.mozilla.com",
@@ -178,6 +184,7 @@ def test_get_consumers():
 
 
 def test_pulse_consumer_bind_and_unbind(pulse_connection, monkeypatch):
+    """Test PulseConsumer can bind, re-bind, unbind, and close connection."""
     cons = DummyPulseConsumer(
         {
             "root_url": "https://firefox-ci-tc.services.mozilla.com",
@@ -211,6 +218,7 @@ def test_pulse_consumer_bind_and_unbind(pulse_connection, monkeypatch):
 
 
 def test_pulse_consumer_prune_bindings(pulse_connection, monkeypatch):
+    """Test PulseConsumer correctly prunes stale bindings."""
     cons = DummyPulseConsumer(
         {
             "root_url": "https://firefox-ci-tc.services.mozilla.com",
@@ -242,6 +250,7 @@ def test_pulse_consumer_prune_bindings(pulse_connection, monkeypatch):
 
 
 def test_pulse_consumer_prepare(pulse_connection, monkeypatch):
+    """Test prepare method sets up all routing key bindings and prunes stale ones."""
     class SimpleConsumer(PulseConsumer):
         queue_suffix = "simple"
         def bindings(self):
@@ -271,6 +280,7 @@ def test_pulse_consumer_prepare(pulse_connection, monkeypatch):
 
 
 def test_task_consumer(monkeypatch):
+    """Test TaskConsumer bindings and asynchronous task routing logic on message receipt."""
     cons = TaskConsumer({"root_url": "https://foo.com", "pulse_url": "memory://"}, None)
     assert cons.bindings() == TASKCLUSTER_TASK_BINDINGS
 
@@ -287,6 +297,7 @@ def test_task_consumer(monkeypatch):
 
 
 def test_mozci_classification_consumer(monkeypatch):
+    """Test MozciClassificationConsumer environment configurations and message routing."""
     # Default production env
     cons = MozciClassificationConsumer({"root_url": "https://foo.com", "pulse_url": "memory://"}, None)
     assert cons.bindings() == MOZCI_CLASSIFICATION_PRODUCTION_BINDINGS
@@ -313,6 +324,7 @@ def test_mozci_classification_consumer(monkeypatch):
 
 
 def test_push_consumer(monkeypatch):
+    """Test PushConsumer bindings conditionally active for hgmo and github source types."""
     # Both hgmo and github disabled
     cons = PushConsumer({"root_url": "https://foo.com", "pulse_url": "memory://", "hgmo": False, "github": False}, None)
     assert cons.bindings() == []
@@ -343,6 +355,7 @@ def test_push_consumer(monkeypatch):
 
 
 def test_joint_consumer_bindings(monkeypatch):
+    """Test JointConsumer bindings collection based on enabled flags in source."""
     # Test various branches in JointConsumer.bindings()
     # 1. hgmo and github
     cons1 = JointConsumer({"hgmo": True, "github": True, "pulse_url": "memory://", "root_url": "https://foo.com"}, None)
@@ -369,6 +382,7 @@ def test_joint_consumer_bindings(monkeypatch):
 
 
 def test_joint_consumer_on_message_non_taskcluster(monkeypatch):
+    """Test JointConsumer routes push-related messages correctly."""
     # If exchange is NOT taskcluster-queue, it calls store_pulse_pushes
     mock_store_pulse_pushes = MagicMock()
     monkeypatch.setattr(store_pulse_pushes, "apply_async", mock_store_pulse_pushes)
@@ -385,6 +399,7 @@ def test_joint_consumer_on_message_non_taskcluster(monkeypatch):
 
 
 def test_consumers_runner():
+    """Test Consumers runner triggers prepare and executes thread routines."""
     # Test real execution thread spawn and join
     mock_prepare = MagicMock()
     mock_run = MagicMock()
@@ -403,6 +418,7 @@ def test_consumers_runner():
 
 
 def test_prepare_consumers_factory():
+    """Test prepare_consumers factory correctly initializes Consumers container with list of class instances."""
     class DummyConsumerClass:
         def __init__(self, source, build_routing_key):
             self.source = source
@@ -416,6 +432,7 @@ def test_prepare_consumers_factory():
 
 
 def test_prepare_joint_consumers_factory():
+    """Test prepare_joint_consumers factory correctly unpacks tuple arguments and instantiates consumers."""
     class DummyConsumerClass:
         def __init__(self, source, build_routing_key):
             self.source = source
