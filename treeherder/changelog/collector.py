@@ -23,42 +23,43 @@ class GitHub:
         filters = kw.get("filters")
         gh_options = {"number": kw.get("number", MAX_ITEMS)}
 
+        if "since" in kw:
+            gh_options["since"] = kw["since"]
+
         for release in github.get_releases(owner, repository, params=gh_options):
-            release["files"] = []
-            # no "since" option for releases() we filter manually here
-            if "since" in kw and release["published_at"] <= kw["since"]:
-                continue
-            name = release["name"] or release["tag_name"]
+            name = release.name or release.tag_name
             yield {
-                "date": release["published_at"],
-                "author": release["author"]["login"],
+                "date": release.published_at.isoformat(),
+                "author": release.author.login,
                 "message": "Released " + name,
-                "remote_id": release["id"],
+                "remote_id": str(release.id),
                 "type": "release",
-                "url": release["html_url"],
+                "url": release.html_url,
+                "files": [],
             }
 
         if "since" in kw:
             gh_options["since"] = kw["since"]
 
         for commit in github.get_all_commits(owner, repository, params=gh_options):
+            files = []
             if filters:
                 for filter in filters:
                     if isinstance(filter, list) and filter[0] == "filter_by_path":
-                        commit_info = github.get_commit(owner, repository, commit["sha"])
-                        commit["files"] = commit_info["files"]
+                        commit_info = github.get_commit(owner, repository, commit.sha)
+                        files = [f.filename for f in commit_info.files]
                         break
 
-            message = commit["commit"]["message"]
+            message = commit.commit.message
             message = message.split("\n")[0]
             res = {
-                "date": commit["commit"]["author"]["date"],
-                "author": commit["commit"]["author"]["name"],
+                "date": commit.commit.author.date.isoformat(),
+                "author": commit.commit.author.name,
                 "message": message,
-                "remote_id": commit["sha"],
+                "remote_id": commit.sha,
                 "type": "commit",
-                "url": commit["html_url"],
-                "files": [f["filename"] for f in commit.get("files", [])],
+                "url": commit.html_url,
+                "files": files,
             }
             res = self.filters(res, filters)
             if res:
