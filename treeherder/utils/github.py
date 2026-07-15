@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
+from functools import lru_cache
 from github import Auth, Github
 from github.Repository import Repository
 from github.Commit import Commit
@@ -47,6 +48,7 @@ def get_releases(owner: str, repo: str, params: Optional[Dict[str, Any]] = None)
     return [release for release in releases]
 
 
+@lru_cache(maxsize=10)
 def get_repo(owner: str, repo: str) -> Repository:
     """
     Get a PyGithub Repository object.

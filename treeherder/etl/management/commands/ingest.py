@@ -366,7 +366,7 @@ def ingest_push(project, revision, fetch_push_id=None):
         _ingest_hg_push(project, revision)
 
 
-def ingest_git_pushes(project, dry_run=False):
+def ingest_git_pushes(project, dry_run=False, count=None):
     """
     This method takes all commits for a repo from Github and determines which ones are considered
     part of a push or a merge. Treeherder groups commits by push.
@@ -380,6 +380,9 @@ def ingest_git_pushes(project, dry_run=False):
         raise Exception(
             "Set GITHUB_TOKEN env variable to avoid rate limiting - Visit https://github.com/settings/tokens."
         )
+
+    if count is None:
+        count = 30
 
     logger.info("--> Converting Github commits to pushes")
     _repo_meta = repo_meta(project)
@@ -410,6 +413,10 @@ def ingest_git_pushes(project, dry_run=False):
                 f"Push: {oldest_parent_revision} - Date: {push_to_date[oldest_parent_revision]}"
             )
         push_revision.append(_commit.sha)
+
+        # Break if we have enough pushes
+        if len(push_revision) >= count:
+            break
 
     if not dry_run:
         logger.info("--> Ingest Github pushes")
@@ -476,7 +483,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         type_of_ingestion = options["ingestion_type"][0]
         root_url = options["root_url"]
 
@@ -506,7 +517,9 @@ class Command(BaseCommand):
             if type_of_ingestion == "git-push":
                 ingest_push(options["project"], options["commit"])
             elif type_of_ingestion == "git-pushes":
-                ingest_git_pushes(options["project"], options["dryRun"])
+                ingest_git_pushes(
+                    options["project"], options["dryRun"], count=options.get("last_n_pushes")
+                )
         elif type_of_ingestion == "push":
             ingest_hg_push(options)
         else:
