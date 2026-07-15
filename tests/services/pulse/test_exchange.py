@@ -21,3 +21,11 @@ def test_get_new_exchange(pulse_connection):
 
     assert isinstance(exchange, Exchange)
     assert exchange.name == "new_exchange"
+
+
+def test_get_non_existent_exchange_fails(pulse_connection):
+    """Test that declaring a non-existent exchange with create=False fails."""
+    # Since passive=True is set when create=False, get_exchange should raise an exception
+    # when trying to declare an exchange that has not been created.
+    with pytest.raises(Exception):
+        get_exchange(pulse_connection, "non_existent_exchange", create=False)
