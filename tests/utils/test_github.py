@@ -61,16 +61,50 @@ class MockGitRelease:
         )
 
 
+# --- Additional Helper Mock Classes to simulate PyGitHub's Commit structure ---
+
+class MockCommitParent:
+    def __init__(self, sha):
+        self.sha = sha
+
+
+class MockCommitFile:
+    def __init__(self, filename):
+        self.filename = filename
+
+
+class MockCommitter:
+    def __init__(self, date):
+        self.date = date
+
+
+class MockInnerCommit:
+    def __init__(self, committer_date):
+        self.committer = MockCommitter(committer_date)
+
+
+class MockCommit:
+    def __init__(self, sha, committer_date, parents=None, files=None):
+        self.sha = sha
+        self.commit = MockInnerCommit(committer_date)
+        self.parents = [MockCommitParent(p_sha) for p_sha in parents] if parents else []
+        self.files = [MockCommitFile(f_name) for f_name in files] if files else []
+
+
 # Mock Repository class to simulate PyGithub's Repository objects
 class MockRepository:
-    def __init__(self, releases):
-        self._releases = releases
+    def __init__(self, releases=None, commits=None):
+        self._releases = releases or []
+        self._commits = commits or {}
 
     def get_releases(self):
         # PyGithub's get_releases returns an iterable (PaginatedList),
         # with releases in reverse chronological order.
         # Returning a list directly simulates this behavior for the mock.
         return self._releases
+
+    def get_commit(self, sha):
+        return self._commits[sha]
 
 
 @patch("treeherder.utils.github.github")
@@ -293,3 +327,98 @@ def test_get_releases_with_number_and_since_params(mock_github):
     ]
     assert len(result_s3) == 3
     assert result_s3 == expected_s3
+
+
+# --- Unit Tests for get_commit ---
+
+@patch("treeherder.utils.github.github")
+def test_get_commit_standard(mock_github):
+    """
+    Test get_commit returns a dictionary representing a standard commit with files, parents, and committer date.
+    """
+    owner = "test-owner"
+    repo = "test-repo"
+    sha = "abc123commitsha"
+    date_str = "2023-01-01T12:00:00Z"
+
+    mock_commit = MockCommit(
+        sha=sha,
+        committer_date=date_str,
+        parents=["parentsha1", "parentsha2"],
+        files=["file1.py", "file2.py"],
+    )
+
+    mock_repo_instance = MockRepository(commits={sha: mock_commit})
+    mock_github.get_repo.return_value = mock_repo_instance
+
+    # Call the function under test
+    from treeherder.utils.github import get_commit
+    result = get_commit(owner, repo, sha)
+
+    # Assertions
+    mock_github.get_repo.assert_called_once_with(f"{owner}/{repo}")
+    assert result == {
+        "files": [{"filename": "file1.py"}, {"filename": "file2.py"}],
+        "commit": {"committer": {"date": date_str}},
+        "parents": [{"sha": "parentsha1"}, {"sha": "parentsha2"}],
+    }
+
+
+@patch("treeherder.utils.github.github")
+def test_get_commit_initial_commit(mock_github):
+    """
+    Test get_commit handles an initial/root commit with no parents.
+    """
+    owner = "test-owner"
+    repo = "test-repo"
+    sha = "initialcommitsha"
+    date_str = "2023-01-01T00:00:00Z"
+
+    mock_commit = MockCommit(
+        sha=sha,
+        committer_date=date_str,
+        parents=[],
+        files=["README.md"],
+    )
+
+    mock_repo_instance = MockRepository(commits={sha: mock_commit})
+    mock_github.get_repo.return_value = mock_repo_instance
+
+    from treeherder.utils.github import get_commit
+    result = get_commit(owner, repo, sha)
+
+    assert result == {
+        "files": [{"filename": "README.md"}],
+        "commit": {"committer": {"date": date_str}},
+        "parents": [],
+    }
+
+
+@patch("treeherder.utils.github.github")
+def test_get_commit_no_files(mock_github):
+    """
+    Test get_commit handles a commit with no files changed.
+    """
+    owner = "test-owner"
+    repo = "test-repo"
+    sha = "nofilescommitsha"
+    date_str = "2023-01-02T10:00:00Z"
+
+    mock_commit = MockCommit(
+        sha=sha,
+        committer_date=date_str,
+        parents=["parentsha"],
+        files=[],
+    )
+
+    mock_repo_instance = MockRepository(commits={sha: mock_commit})
+    mock_github.get_repo.return_value = mock_repo_instance
+
+    from treeherder.utils.github import get_commit
+    result = get_commit(owner, repo, sha)
+
+    assert result == {
+        "files": [],
+        "commit": {"committer": {"date": date_str}},
+        "parents": [{"sha": "parentsha"}],
+    }
