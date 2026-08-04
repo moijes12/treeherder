@@ -32,6 +32,9 @@ markdown_extensions:
 # http://www.mkdocs.org/user-guide/writing-your-docs/#configure-pages-and-navigation
 nav:
   - About: 'index.md'
+  - Onboarding & Architecture:
+      - System Architecture & Interaction Guide: 'architecture_overview.md'
+      - Maintainer Study Plan: 'onboarding_study_plan.md'
   - Development:
       - Installation: 'installation.md'
       - Testing: 'testing.md'
