@@ -35,6 +35,7 @@ nav:
   - Onboarding & Architecture:
       - System Architecture & Interaction Guide: 'architecture_overview.md'
       - Maintainer Study Plan: 'onboarding_study_plan.md'
+      - Data Flows & Messaging Infrastructure: 'data_flows_messaging.md'
   - Development:
       - Installation: 'installation.md'
       - Testing: 'testing.md'
