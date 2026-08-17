@@ -5,7 +5,7 @@ import pytest
 from django.utils import timezone
 
 from treeherder.model.models import Job, Push
-from treeherder.workers.stats import publish_stats
+from treeherder.workers.stats import get_stats_client, publish_stats
 
 
 @pytest.mark.django_db
@@ -17,7 +17,11 @@ def test_publish_stats_nothing_to_do(get_worker_mock, django_assert_num_queries,
     assert Job.objects.count() == 0
     with django_assert_num_queries(2):
         publish_stats()
-    assert [(level, message) for _, level, message in caplog.record_tuples] == [
+    assert [
+        (level, message)
+        for name, level, message in caplog.record_tuples
+        if name == "treeherder.workers.stats"
+    ] == [
         (20, "Publishing runtime statistics to statsd"),
         (20, "Ingested 0 pushes"),
         (20, "Ingested 0 jobs in total"),
@@ -41,7 +45,11 @@ def test_publish_stats(
 
     with django_assert_num_queries(2):
         publish_stats()
-    assert [(level, message) for _, level, message in caplog.record_tuples] == [
+    assert [
+        (level, message)
+        for name, level, message in caplog.record_tuples
+        if name == "treeherder.workers.stats"
+    ] == [
         (20, "Publishing runtime statistics to statsd"),
         (20, "Ingested 22 pushes"),
         (20, "Ingested 11 jobs in total"),
@@ -52,3 +60,13 @@ def test_publish_stats(
         call("jobs_repo.mozilla-central", 11),
         call("jobs_state.completed", 11),
     ]
+
+
+def test_get_stats_client(settings):
+    "Test get_stats_client returns a statsd client with correct settings"
+    settings.STATSD_HOST = "localhost"
+    settings.STATSD_PORT = 8125
+    settings.STATSD_PREFIX = "test-prefix"
+    client = get_stats_client()
+    assert client._addr[1] == 8125
+    assert client._prefix == "test-prefix"
