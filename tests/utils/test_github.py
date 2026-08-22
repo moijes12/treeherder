@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 # Import the function to be tested
-from treeherder.utils.github import ComparisonData, compare_shas, get_releases
+from treeherder.utils.github import compare_shas, get_releases
 
 
 # Mock GitCommit and it's related classes
@@ -478,7 +478,7 @@ def test_compare_shas_default_false(mock_github):
 
 @patch("treeherder.utils.github.github")
 def test_compare_shas_get_comparison_object_true(mock_github):
-    """Test compare_shas returns Comparison object as dict with dataclasses and generators when get_comparison_object is True."""
+    """Test compare_shas returns standard dict with generators when get_comparison_object is True."""
     commit1 = MockCommit("sha1", "2023-01-01T00:00:00Z", parents=["parent1"], files=["file1.py"])
     base_commit = MockCommit("base_sha", "2023-01-01T00:00:00Z")
     merge_base_commit = MockCommit("mb_sha", "2023-01-01T00:00:00Z", parents=["parent0"])
@@ -495,27 +495,17 @@ def test_compare_shas_get_comparison_object_true(mock_github):
     result = compare_shas("test-owner", "test-repo", "base", "head", get_comparison_object=True)
 
     assert isinstance(result, dict)
+    assert result["status"] == "ahead"
+    assert result["base_commit"]["sha"] == "base_sha"
     assert result["merge_base_commit"]["sha"] == "mb_sha"
-    assert result["merge_base_commit"]["parents"] == [{"sha": "parent0", "url": None}]
+    assert result["merge_base_commit"]["parents"] == [{"sha": "parent0"}]
 
-    # Verify commits is a generator
+    # Verify commits and files are generators
     assert isinstance(result["commits"], types.GeneratorType)
+    assert isinstance(result["files"], types.GeneratorType)
 
     commits_list = list(result["commits"])
     assert len(commits_list) == 1
     assert commits_list[0]["sha"] == "sha1"
-    assert commits_list[0]["parents"] == [{"sha": "parent1", "url": None}]
+    assert commits_list[0]["parents"] == [{"sha": "parent1"}]
     assert commits_list[0]["commit"]["committer"]["date"] == "2023-01-01T00:00:00Z"
-
-
-def test_comparison_dataclass_json_serialization():
-    """Test ComparisonData dataclass serialization to and from JSON."""
-    mb = MockCommit("mb_sha", "2023-01-01T00:00:00Z", parents=["p0"])
-    c1 = MockCommit("sha1", "2023-01-02T00:00:00Z", parents=["mb_sha"])
-
-    comp_data = ComparisonData.from_obj({"merge_base_commit": mb})
-    json_str = comp_data.to_json(raw_commits=[c1])
-
-    deserialized = ComparisonData.from_json(json_str)
-    assert deserialized.merge_base_commit.sha == "mb_sha"
-    assert deserialized.merge_base_commit.parents[0].sha == "p0"
