@@ -1,4 +1,7 @@
+import json
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from typing import Any, Iterable, Optional
 
 from github import Auth, Github
 from github.GitRelease import GitRelease
@@ -61,195 +64,155 @@ def get_releases(owner, repo, params=None):
     return releases
 
 
-def _user_to_dict(user):
-    if user is None:
-        return None
-    if isinstance(user, dict):
-        return user
-    d = {}
-    if hasattr(user, "login"):
-        d["login"] = user.login
-    if hasattr(user, "id"):
-        d["id"] = user.id
-    if hasattr(user, "avatar_url"):
-        d["avatar_url"] = user.avatar_url
-    if hasattr(user, "html_url"):
-        d["html_url"] = user.html_url
-    if hasattr(user, "type"):
-        d["type"] = user.type
-    return d if d else str(user)
+@dataclass
+class GitAuthorCommitter:
+    name: Optional[str] = None
+    email: Optional[str] = None
+    date: Optional[Any] = None
 
-
-def _git_author_committer_to_dict(ac):
-    if ac is None:
-        return None
-    if isinstance(ac, dict):
-        return ac
-    d = {}
-    if hasattr(ac, "name"):
-        d["name"] = ac.name
-    if hasattr(ac, "email"):
-        d["email"] = ac.email
-    if hasattr(ac, "date"):
-        d["date"] = ac.date
-    return d
-
-
-def _inner_git_commit_to_dict(git_commit):
-    if git_commit is None:
-        return None
-    if isinstance(git_commit, dict):
-        return git_commit
-    d = {}
-    if hasattr(git_commit, "message"):
-        d["message"] = git_commit.message
-    if hasattr(git_commit, "author"):
-        d["author"] = _git_author_committer_to_dict(git_commit.author)
-    if hasattr(git_commit, "committer"):
-        d["committer"] = _git_author_committer_to_dict(git_commit.committer)
-    if hasattr(git_commit, "tree") and git_commit.tree:
-        tree = git_commit.tree
-        d["tree"] = (
-            tree
-            if isinstance(tree, dict)
-            else {
-                "sha": getattr(tree, "sha", None),
-                "url": getattr(tree, "url", None),
-            }
+    @classmethod
+    def from_obj(cls, obj: Any) -> Optional["GitAuthorCommitter"]:
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return cls(
+                name=obj.get("name"),
+                email=obj.get("email"),
+                date=obj.get("date"),
+            )
+        return cls(
+            name=getattr(obj, "name", None),
+            email=getattr(obj, "email", None),
+            date=getattr(obj, "date", None),
         )
-    if hasattr(git_commit, "comment_count"):
-        d["comment_count"] = git_commit.comment_count
-    if hasattr(git_commit, "verification") and git_commit.verification:
-        v = git_commit.verification
-        d["verification"] = (
-            v
-            if isinstance(v, dict)
-            else {
-                "verified": getattr(v, "verified", None),
-                "reason": getattr(v, "reason", None),
-            }
+
+
+@dataclass
+class InnerGitCommit:
+    message: Optional[str] = None
+    author: Optional[GitAuthorCommitter] = None
+    committer: Optional[GitAuthorCommitter] = None
+
+    @classmethod
+    def from_obj(cls, obj: Any) -> Optional["InnerGitCommit"]:
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return cls(
+                message=obj.get("message"),
+                author=GitAuthorCommitter.from_obj(obj.get("author")),
+                committer=GitAuthorCommitter.from_obj(obj.get("committer")),
+            )
+        return cls(
+            message=getattr(obj, "message", None),
+            author=GitAuthorCommitter.from_obj(getattr(obj, "author", None)),
+            committer=GitAuthorCommitter.from_obj(getattr(obj, "committer", None)),
         )
-    if hasattr(git_commit, "url"):
-        d["url"] = git_commit.url
-    return d
 
 
-def _parent_to_dict(parent):
-    if parent is None:
-        return None
-    if isinstance(parent, dict):
-        return parent
-    d = {}
-    if hasattr(parent, "sha"):
-        d["sha"] = parent.sha
-    if hasattr(parent, "url"):
-        d["url"] = parent.url
-    if hasattr(parent, "html_url"):
-        d["html_url"] = parent.html_url
-    return d
+@dataclass
+class CommitParent:
+    sha: Optional[str] = None
+    url: Optional[str] = None
 
-
-def _file_to_dict(file_obj):
-    if file_obj is None:
-        return None
-    if isinstance(file_obj, dict):
-        return file_obj
-    d = {}
-    for attr in (
-        "filename",
-        "additions",
-        "deletions",
-        "changes",
-        "status",
-        "raw_url",
-        "blob_url",
-        "patch",
-        "sha",
-    ):
-        if hasattr(file_obj, attr):
-            d[attr] = getattr(file_obj, attr)
-    return d
-
-
-def _commit_to_dict(commit):
-    if commit is None:
-        return None
-    if isinstance(commit, dict):
-        return commit
-    d = {}
-    if hasattr(commit, "sha"):
-        d["sha"] = commit.sha
-    if hasattr(commit, "node_id"):
-        d["node_id"] = commit.node_id
-    if hasattr(commit, "commit"):
-        d["commit"] = _inner_git_commit_to_dict(commit.commit)
-    if hasattr(commit, "author"):
-        d["author"] = _user_to_dict(commit.author)
-    if hasattr(commit, "committer"):
-        d["committer"] = _user_to_dict(commit.committer)
-    if hasattr(commit, "parents") and commit.parents is not None:
-        d["parents"] = [_parent_to_dict(p) for p in commit.parents]
-    if hasattr(commit, "files") and commit.files is not None:
-        d["files"] = [_file_to_dict(f) for f in commit.files]
-    if hasattr(commit, "stats") and commit.stats is not None:
-        st = commit.stats
-        d["stats"] = (
-            st
-            if isinstance(st, dict)
-            else {
-                "additions": getattr(st, "additions", None),
-                "deletions": getattr(st, "deletions", None),
-                "total": getattr(st, "total", None),
-            }
+    @classmethod
+    def from_obj(cls, obj: Any) -> Optional["CommitParent"]:
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return cls(
+                sha=obj.get("sha"),
+                url=obj.get("url"),
+            )
+        return cls(
+            sha=getattr(obj, "sha", None),
+            url=getattr(obj, "url", None),
         )
-    if hasattr(commit, "url"):
-        d["url"] = commit.url
-    if hasattr(commit, "html_url"):
-        d["html_url"] = commit.html_url
-    if hasattr(commit, "comments_url"):
-        d["comments_url"] = commit.comments_url
-    return d
 
 
-def _comparison_to_dict(comparison):
-    if isinstance(comparison, dict):
-        return comparison
+@dataclass
+class CommitData:
+    sha: Optional[str] = None
+    commit: Optional[InnerGitCommit] = None
+    parents: list[CommitParent] = field(default_factory=list)
 
-    d = {}
-    if hasattr(comparison, "url"):
-        d["url"] = comparison.url
-    if hasattr(comparison, "html_url"):
-        d["html_url"] = comparison.html_url
-    if hasattr(comparison, "permalink_url"):
-        d["permalink_url"] = comparison.permalink_url
-    if hasattr(comparison, "diff_url"):
-        d["diff_url"] = comparison.diff_url
-    if hasattr(comparison, "patch_url"):
-        d["patch_url"] = comparison.patch_url
-    if hasattr(comparison, "base_commit") and comparison.base_commit is not None:
-        d["base_commit"] = _commit_to_dict(comparison.base_commit)
-    if hasattr(comparison, "merge_base_commit") and comparison.merge_base_commit is not None:
-        d["merge_base_commit"] = _commit_to_dict(comparison.merge_base_commit)
-    if hasattr(comparison, "status"):
-        d["status"] = comparison.status
-    if hasattr(comparison, "ahead_by"):
-        d["ahead_by"] = comparison.ahead_by
-    if hasattr(comparison, "behind_by"):
-        d["behind_by"] = comparison.behind_by
-    if hasattr(comparison, "total_commits"):
-        d["total_commits"] = comparison.total_commits
-    if hasattr(comparison, "commits") and comparison.commits is not None:
-        d["commits"] = (_commit_to_dict(c) for c in comparison.commits)
-    if hasattr(comparison, "files") and comparison.files is not None:
-        d["files"] = (_file_to_dict(f) for f in comparison.files)
-    return d
+    @classmethod
+    def from_obj(cls, obj: Any) -> Optional["CommitData"]:
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            parents = [
+                p_obj
+                for p in obj.get("parents", [])
+                if (p_obj := CommitParent.from_obj(p)) is not None
+            ]
+            return cls(
+                sha=obj.get("sha"),
+                commit=InnerGitCommit.from_obj(obj.get("commit")),
+                parents=parents,
+            )
+        raw_parents = getattr(obj, "parents", None) or []
+        parents = [
+            p_obj
+            for p in raw_parents
+            if (p_obj := CommitParent.from_obj(p)) is not None
+        ]
+        return cls(
+            sha=getattr(obj, "sha", None),
+            commit=InnerGitCommit.from_obj(getattr(obj, "commit", None)),
+            parents=parents,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ComparisonData:
+    merge_base_commit: Optional[CommitData] = None
+
+    @classmethod
+    def from_obj(cls, obj: Any) -> "ComparisonData":
+        if isinstance(obj, dict):
+            mb = obj.get("merge_base_commit")
+        else:
+            mb = getattr(obj, "merge_base_commit", None)
+        return cls(merge_base_commit=CommitData.from_obj(mb))
+
+    def to_dict(self, raw_commits: Optional[Iterable[Any]] = None) -> dict[str, Any]:
+        mb_dict = asdict(self.merge_base_commit) if self.merge_base_commit else None
+        commits_src = raw_commits if raw_commits is not None else []
+        commits_gen = (
+            cd.to_dict()
+            for c in commits_src
+            if (cd := CommitData.from_obj(c)) is not None
+        )
+        return {
+            "merge_base_commit": mb_dict,
+            "commits": commits_gen,
+        }
+
+    def to_json(self, raw_commits: Optional[Iterable[Any]] = None) -> str:
+        d = self.to_dict(raw_commits=raw_commits)
+        if "commits" in d and not isinstance(d["commits"], list):
+            d["commits"] = list(d["commits"])
+        return json.dumps(d, default=str)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "ComparisonData":
+        data = json.loads(json_str)
+        return cls.from_obj(data)
 
 
 def compare_shas(owner, repo, base, head, get_comparison_object=False):
     repo = pygithub_get_repo(owner, repo)
     comparison = repo.compare(base, head)
     if get_comparison_object:
-        return _comparison_to_dict(comparison)
+        comp_data = ComparisonData.from_obj(comparison)
+        raw_commits = getattr(comparison, "commits", None)
+        if isinstance(comparison, dict):
+            raw_commits = comparison.get("commits")
+        return comp_data.to_dict(raw_commits=raw_commits)
     return [commit for commit in comparison.commits]
 
 
