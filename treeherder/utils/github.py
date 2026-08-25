@@ -255,7 +255,7 @@ def compare_shas(owner, repo, base, head, get_comparison_object=False):
 
 def get_all_commits(owner, repo, params=None):
     repo_obj = pygithub_get_repo(owner, repo)
-    return [{"sha": commit.sha} for commit in repo_obj.get_commits()]
+    return ({"sha": commit.sha} for commit in repo_obj.get_commits())
 
 
 def get_commit(owner, repo, sha, params=None):
