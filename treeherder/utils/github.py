@@ -254,8 +254,74 @@ def compare_shas(owner, repo, base, head, get_comparison_object=False):
 
 
 def get_all_commits(owner, repo, params=None):
+    """
+    Retrieve GitHub commits for a given repository.
+    Yields standardized dictionaries representing commits.
+    """
+    since_dt = None
+    max_number = None
+
+    if params:
+        max_number = params.get("number")
+        since_param = params.get("since")
+        if since_param:
+            if isinstance(since_param, datetime):
+                since_dt = since_param
+            else:
+                since_dt = datetime.fromisoformat(since_param)
+            if since_dt.tzinfo is None:
+                since_dt = since_dt.replace(tzinfo=UTC)
+
     repo_obj = pygithub_get_repo(owner, repo)
-    return ({"sha": commit.sha} for commit in repo_obj.get_commits())
+    kwargs = {}
+    if since_dt:
+        kwargs["since"] = since_dt
+
+    paginated_commits = repo_obj.get_commits(**kwargs)
+
+    count = 0
+    for commit in paginated_commits:
+        if max_number and count >= max_number:
+            break
+
+        commit_author = getattr(getattr(commit, "commit", None), "author", None)
+        if commit_author and hasattr(commit_author, "date"):
+            c_dt = commit_author.date
+            if isinstance(c_dt, str):
+                c_dt = datetime.fromisoformat(c_dt)
+            if c_dt and since_dt:
+                if c_dt.tzinfo is None:
+                    c_dt = c_dt.replace(tzinfo=UTC)
+                if c_dt < since_dt:
+                    break
+
+        author_name = getattr(commit_author, "name", None) if commit_author else None
+        author_email = getattr(commit_author, "email", None) if commit_author else None
+        author_date = getattr(commit_author, "date", None) if commit_author else None
+
+        commit_committer = getattr(getattr(commit, "commit", None), "committer", None)
+        committer_name = getattr(commit_committer, "name", None) if commit_committer else None
+        committer_email = getattr(commit_committer, "email", None) if commit_committer else None
+        committer_date = getattr(commit_committer, "date", None) if commit_committer else None
+
+        yield {
+            "sha": commit.sha,
+            "html_url": getattr(commit, "html_url", None),
+            "commit": {
+                "message": getattr(getattr(commit, "commit", None), "message", ""),
+                "author": {
+                    "name": author_name,
+                    "email": author_email,
+                    "date": author_date,
+                },
+                "committer": {
+                    "name": committer_name,
+                    "email": committer_email,
+                    "date": committer_date,
+                },
+            },
+        }
+        count += 1
 
 
 def get_commit(owner, repo, sha, params=None):
