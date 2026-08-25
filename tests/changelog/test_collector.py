@@ -75,8 +75,24 @@ def test_collect(mock_pygithub_get_repo):
     mock_parent.sha = "mock_parent_sha"
     mock_commit.parents = [mock_parent]
 
+    # Mock commit object returned by get_commits
+    mock_git_author = mock.Mock()
+    mock_git_author.name = "tarek"
+    mock_git_author.email = "tarek@example.com"
+    mock_git_author.date = now.isoformat()
+
+    mock_git_commit_inner = mock.Mock()
+    mock_git_commit_inner.message = "yeah"
+    mock_git_commit_inner.author = mock_git_author
+
+    mock_git_commit = mock.Mock()
+    mock_git_commit.sha = random_id()
+    mock_git_commit.html_url = "url"
+    mock_git_commit.commit = mock_git_commit_inner
+
     mock_repo = mock.Mock()
     mock_repo.get_releases.return_value = [mock_release]
+    mock_repo.get_commits.return_value = [mock_git_commit]
     mock_repo.get_commit.return_value = mock_commit
     mock_pygithub_get_repo.return_value = mock_repo
 
@@ -95,7 +111,7 @@ def test_collect(mock_pygithub_get_repo):
     assert release_entry["url"] == "mock_release_url"
     assert release_entry["date"] == now.isoformat(timespec="seconds")
 
-    # Verify a commit entry created from responses mock
+    # Verify a commit entry created from PyGithub mock
     commit_entry = next((item for item in res if item["type"] == "commit"), None)
     assert commit_entry is not None
     assert commit_entry["author"] == "tarek"

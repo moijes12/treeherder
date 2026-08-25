@@ -10,7 +10,7 @@ REPO_META = {
 
 
 def test_query_data_consumes_compare_dict(monkeypatch):
-    """query_data must read the GitHub compare REST response as a dict.
+    """query_data must read the GitHub compare response as a dict.
 
     Regression guard for Bug 2009865, which switched ``compare_shas`` to return
     a list of PyGithub commit objects (for the Pulse push loader) but left
@@ -49,16 +49,17 @@ def test_query_data_consumes_compare_dict(monkeypatch):
         },
     }
 
-    def fake_fetch_api(path, params=None):
-        return compare_by_range[path.split("/compare/")[1]]
+    def fake_compare_shas(owner, repo, base, head, get_comparison_object=False):
+        assert get_comparison_object is True
+        return compare_by_range[f"{base}...{head}"]
 
-    def fake_fetch_api_full_url(url, params=None):
+    def fake_get_commit(owner, repo, sha, params=None):
         # The merge-base parent, with a committer date different from the merge
         # base so query_data takes the simple (non-recursive) branch.
         return {"sha": "PARENT", "commit": {"committer": {"date": "2026-02-02T00:00:00Z"}}}
 
-    monkeypatch.setattr(ingest, "fetch_api", fake_fetch_api)
-    monkeypatch.setattr(ingest, "fetch_api_full_url", fake_fetch_api_full_url)
+    monkeypatch.setattr(ingest, "compare_shas", fake_compare_shas)
+    monkeypatch.setattr(ingest.github, "get_commit", fake_get_commit)
 
     event_base_sha, commits = ingest.query_data(REPO_META, "HEAD")
 

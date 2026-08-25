@@ -1,10 +1,11 @@
+import types
 from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
 
 # Import the function to be tested
-from treeherder.utils.github import get_releases
+from treeherder.utils.github import compare_shas, get_releases
 
 
 # Mock GitCommit and it's related classes
@@ -34,6 +35,30 @@ class MockCommit:
         self.commit = MockInnerCommit(committer_date)
         self.parents = [MockCommitParent(p_sha) for p_sha in parents] if parents else []
         self.files = [MockCommitFile(f_name) for f_name in files] if files else []
+
+
+class MockComparison:
+    def __init__(
+        self,
+        commits=None,
+        base_commit=None,
+        merge_base_commit=None,
+        files=None,
+        status="ahead",
+        ahead_by=1,
+        behind_by=0,
+        total_commits=1,
+        url="https://api.github.com/repos/test-owner/test-repo/compare/base...head",
+    ):
+        self.commits = commits or []
+        self.base_commit = base_commit
+        self.merge_base_commit = merge_base_commit
+        self.files = files or []
+        self.status = status
+        self.ahead_by = ahead_by
+        self.behind_by = behind_by
+        self.total_commits = total_commits
+        self.url = url
 
 
 @pytest.fixture
@@ -114,9 +139,10 @@ class MockGitRelease:
 
 # Mock Repository class to simulate PyGithub's Repository objects
 class MockRepository:
-    def __init__(self, releases=None, commits=None):
+    def __init__(self, releases=None, commits=None, comparison=None):
         self._releases = releases or []
         self._commits = commits or {}
+        self._comparison = comparison
 
     def get_releases(self):
         # PyGithub's get_releases returns an iterable (PaginatedList),
@@ -126,6 +152,9 @@ class MockRepository:
 
     def get_commit(self, sha):
         return self._commits[sha]
+
+    def compare(self, base, head):
+        return self._comparison
 
 
 @patch("treeherder.utils.github.github")
@@ -431,3 +460,52 @@ def test_get_commit_no_files(github_commit_mock):
         "commit": {"committer": {"date": date_str}},
         "parents": [{"sha": "parentsha"}],
     }
+
+
+@patch("treeherder.utils.github.github")
+def test_compare_shas_default_false(mock_github):
+    """Test compare_shas returns list of commit objects when get_comparison_object is False."""
+    commit1 = MockCommit("sha1", "2023-01-01T00:00:00Z")
+    commit2 = MockCommit("sha2", "2023-01-02T00:00:00Z")
+    mock_comparison = MockComparison(commits=[commit1, commit2])
+    mock_repo = MockRepository(comparison=mock_comparison)
+    mock_github.get_repo.return_value = mock_repo
+
+    result = compare_shas("test-owner", "test-repo", "base", "head")
+
+    assert result == [commit1, commit2]
+
+
+@patch("treeherder.utils.github.github")
+def test_compare_shas_get_comparison_object_true(mock_github):
+    """Test compare_shas returns standard dict with generators when get_comparison_object is True."""
+    commit1 = MockCommit("sha1", "2023-01-01T00:00:00Z", parents=["parent1"], files=["file1.py"])
+    base_commit = MockCommit("base_sha", "2023-01-01T00:00:00Z")
+    merge_base_commit = MockCommit("mb_sha", "2023-01-01T00:00:00Z", parents=["parent0"])
+
+    mock_comparison = MockComparison(
+        commits=[commit1],
+        base_commit=base_commit,
+        merge_base_commit=merge_base_commit,
+        files=[MockCommitFile("file1.py")],
+    )
+    mock_repo = MockRepository(comparison=mock_comparison)
+    mock_github.get_repo.return_value = mock_repo
+
+    result = compare_shas("test-owner", "test-repo", "base", "head", get_comparison_object=True)
+
+    assert isinstance(result, dict)
+    assert result["status"] == "ahead"
+    assert result["base_commit"]["sha"] == "base_sha"
+    assert result["merge_base_commit"]["sha"] == "mb_sha"
+    assert result["merge_base_commit"]["parents"] == [{"sha": "parent0"}]
+
+    # Verify commits and files are generators
+    assert isinstance(result["commits"], types.GeneratorType)
+    assert isinstance(result["files"], types.GeneratorType)
+
+    commits_list = list(result["commits"])
+    assert len(commits_list) == 1
+    assert commits_list[0]["sha"] == "sha1"
+    assert commits_list[0]["parents"] == [{"sha": "parent1"}]
+    assert commits_list[0]["commit"]["committer"]["date"] == "2023-01-01T00:00:00Z"
