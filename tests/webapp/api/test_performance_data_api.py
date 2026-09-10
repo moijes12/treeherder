@@ -874,3 +874,21 @@ def test_alert_summary_tasks_get_failure(client, test_perf_alert_summary):
     resp = client.get(reverse("performance-alertsummary-tasks"))
     assert resp.status_code == 400
     assert resp.json() == {"id": ["This field is required."]}
+
+
+def test_performance_data_missing_project_and_signatures(client, test_repository):
+    resp = client.get(reverse("performance-data-list", kwargs={"project": test_repository.name}))
+    assert resp.status_code == 400
+
+
+def test_performance_summary_400_invalid_dates(client, test_repository):
+    resp = client.get(
+        reverse("performance-summary")
+        + f"?repository={test_repository.name}&framework=1&startday=invalid-date"
+    )
+    assert resp.status_code == 400
+
+
+def test_perf_compare_results_400(client):
+    resp = client.get(reverse("perfcompare-results"))
+    assert resp.status_code == 400

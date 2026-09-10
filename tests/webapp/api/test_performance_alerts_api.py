@@ -672,3 +672,22 @@ def dump_vars(alert_summaries, perf_data, alerts=None):
             dump(alert)
     for perf_datum in perf_data:
         pprint(f"PerfData(id={perf_datum.push_id}, push_timestamp={perf_datum.push_timestamp})")
+
+
+def test_alerts_put_404(authorized_sheriff_client):
+    resp = authorized_sheriff_client.put(
+        reverse("performance-alerts-list") + "99999/", {"starred": True}
+    )
+    assert resp.status_code == 404
+
+
+def test_alert_summary_put_403(client):
+    resp = client.put(reverse("performance-alert-summaries-list") + "1/", {"status": 1})
+    assert resp.status_code == 403
+
+
+def test_alert_summary_put_404(authorized_sheriff_client):
+    resp = authorized_sheriff_client.put(
+        reverse("performance-alert-summaries-list") + "99999/", {"status": 1}
+    )
+    assert resp.status_code == 404
