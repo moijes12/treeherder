@@ -586,3 +586,123 @@ def test_push_status(client, test_job, test_user):
     assert resp.status_code == 200
     assert isinstance(resp.json(), dict)
     assert resp.json() == {"completed": 0, "pending": 0, "running": 0}
+
+
+def test_push_list_bad_timestamp(client, test_repository):
+    resp = client.get(
+        reverse("push-list", kwargs={"project": test_repository.name}),
+        {"push_timestamp__gte": "not-a-timestamp"},
+    )
+    assert resp.status_code == 400
+    assert "Invalid timestamp specified" in resp.json()["detail"]
+
+
+def test_push_list_bad_id_param(client, test_repository):
+    resp = client.get(
+        reverse("push-list", kwargs={"project": test_repository.name}),
+        {"id": "not-an-int"},
+    )
+    assert resp.status_code == 400
+    assert "Invalid timestamp specified for id" in resp.json()["detail"]
+
+
+def test_push_list_count_exceeds_max(client, test_repository):
+    resp = client.get(
+        reverse("push-list", kwargs={"project": test_repository.name}),
+        {"count": 1001},
+    )
+    assert resp.status_code == 400
+    assert "Specified count exceeds api limit" in resp.json()["detail"]
+
+
+def test_push_status_404(client, test_repository):
+    resp = client.get(reverse("push-status", kwargs={"project": test_repository.name, "pk": 99999}))
+    assert resp.status_code == 404
+
+
+def test_push_health_404(client, test_repository):
+    resp = client.get(
+        reverse("push-health", kwargs={"project": test_repository.name}),
+        {"revision": "nonexistent_rev"},
+    )
+    assert resp.status_code == 404
+
+
+def test_push_health_summary(client, test_repository, sample_push):
+    store_push_data(test_repository, sample_push)
+    push = Push.objects.first()
+
+    resp = client.get(
+        reverse("push-health-summary", kwargs={"project": test_repository.name}),
+        {"revision": push.revision, "with_history": "true", "with_in_progress_tests": "true"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["revision"] == push.revision
+
+    resp = client.get(
+        reverse("push-health-summary", kwargs={"project": test_repository.name}),
+        {"author": push.author, "count": 10},
+    )
+    assert resp.status_code == 200
+
+
+def test_push_health_success(client, test_repository, sample_push, monkeypatch):
+    store_push_data(test_repository, sample_push)
+    push = Push.objects.first()
+    monkeypatch.setattr(
+        "treeherder.webapp.api.push.get_new_failure_jobs", lambda p: ({}, {}, "pass")
+    )
+    monkeypatch.setattr(
+        "treeherder.webapp.api.push.get_test_failures",
+        lambda p, j, s: ("pass", {"needInvestigation": []}),
+    )
+    monkeypatch.setattr("treeherder.webapp.api.push.get_build_failures", lambda p: ("pass", [], 0))
+    monkeypatch.setattr("treeherder.webapp.api.push.get_lint_failures", lambda p: ("pass", [], 0))
+    monkeypatch.setattr("treeherder.webapp.api.push.get_commit_history", lambda repo, rev, p: {})
+
+    resp = client.get(
+        reverse("push-health", kwargs={"project": test_repository.name}),
+        {"revision": push.revision},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["revision"] == push.revision
+
+
+def test_push_group_results_success(client, test_repository, sample_push, monkeypatch):
+    store_push_data(test_repository, sample_push)
+    push = Push.objects.first()
+    monkeypatch.setattr(
+        "treeherder.webapp.api.push.get_group_results", lambda repo, p: {"groups": []}
+    )
+
+    resp = client.get(
+        reverse("push-group-results", kwargs={"project": test_repository.name}),
+        {"revision": push.revision},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"groups": []}
+
+
+def test_push_health_usage(client, test_repository, monkeypatch):
+    monkeypatch.setattr("treeherder.webapp.api.push.get_usage", lambda: {"total": 0})
+    resp = client.get(reverse("push-health-usage", kwargs={"project": test_repository.name}))
+    assert resp.status_code == 200
+    assert resp.json() == {"usage": {"total": 0}}
+
+
+def test_push_decisiontask_404(client, test_repository):
+    resp = client.get(
+        reverse("push-decisiontask", kwargs={"project": test_repository.name}),
+        {"push_ids": "99999"},
+    )
+    assert resp.status_code == 404
+
+
+def test_push_group_results_404(client, test_repository):
+    resp = client.get(
+        reverse("push-group-results", kwargs={"project": test_repository.name}),
+        {"revision": "nonexistent_rev"},
+    )
+    assert resp.status_code == 404

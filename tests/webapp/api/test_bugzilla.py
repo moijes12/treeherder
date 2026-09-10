@@ -609,3 +609,37 @@ def test_create_bug_links_internal_bug_by_summary(
 
     existing.refresh_from_db()
     assert existing.bugzilla_id == 323
+
+
+@override_settings(BUGFILER_API_KEY=None)
+def test_create_bug_missing_bugfiler_api_key(client, test_scm_level_1_user):
+    client.force_authenticate(user=test_scm_level_1_user)
+
+    resp = client.post(
+        reverse("bugzilla-create-bug"),
+        {
+            "product": "Bugzilla",
+            "component": "Administration",
+            "summary": "Intermittent summary",
+        },
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["failure"] == "Bugzilla API key not set!"
+
+
+def test_create_security_bug_missing_security_group(client, test_scm_level_1_user):
+    client.force_authenticate(user=test_scm_level_1_user)
+
+    resp = client.post(
+        reverse("bugzilla-create-bug"),
+        {
+            "product": "ProductWithoutSecurityGroup",
+            "component": "Administration",
+            "summary": "Security summary",
+            "is_security_issue": True,
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "Cannot file security bug" in resp.json()["failure"]

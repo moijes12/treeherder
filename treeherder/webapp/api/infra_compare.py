@@ -2,6 +2,7 @@ import datetime
 import logging
 import time
 
+from django.db import models as django_models
 from django.db.models import F
 from rest_framework import generics
 from rest_framework.response import Response
@@ -46,7 +47,12 @@ class InfraCompareView(generics.ListAPIView):
             )
 
         # division by 1000000 is done to convert it to seconds
-        jobs = jobs.annotate(duration=(F("end_time") - F("start_time")) / 1000000)
+        jobs = jobs.annotate(
+            duration=django_models.ExpressionWrapper(
+                (F("end_time") - F("start_time")) / 1000000,
+                output_field=django_models.FloatField(),
+            )
+        )
         self.queryset = jobs.values("id", "job_type__name", "duration", "result")
         serializer = self.get_serializer(self.queryset, many=True)
         return Response(data=serializer.data)

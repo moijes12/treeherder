@@ -301,3 +301,38 @@ def test_last_modified(
     assert resp.status_code == exp_status
     if exp_status == 200:
         assert len(resp.json()["results"]) == exp_job_count
+
+
+def test_job_list_invalid_offset_or_count(client, test_repository):
+    resp = client.get(
+        reverse("jobs-list", kwargs={"project": test_repository.name}),
+        {"offset": "invalid", "count": 10},
+    )
+    assert resp.status_code == 400
+
+    resp = client.get(
+        reverse("jobs-list", kwargs={"project": test_repository.name}),
+        {"count": 99999},
+    )
+    assert resp.status_code == 400
+    assert "exceeds API MAX_JOBS_COUNT" in resp.json()["detail"]
+
+
+def test_job_actions_not_found(client, test_repository):
+    resp = client.get(
+        reverse("jobs-text-log-errors", kwargs={"project": test_repository.name, "pk": 99999})
+    )
+    assert resp.status_code == 404
+
+    resp = client.get(
+        reverse("jobs-bug-suggestions", kwargs={"project": test_repository.name, "pk": 99999})
+    )
+    assert resp.status_code == 404
+
+    resp = client.get(
+        reverse("jobs-similar-jobs", kwargs={"project": test_repository.name, "pk": 99999})
+    )
+    assert resp.status_code == 404
+
+    resp = client.get(reverse("jobs-similar-jobs", kwargs={"project": "bad_project", "pk": 1}))
+    assert resp.status_code == 404
